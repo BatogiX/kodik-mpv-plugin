@@ -1,14 +1,19 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+use mpv_client::{Event, Handle, mpv_handle};
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[unsafe(no_mangle)]
+extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> std::os::raw::c_int {
+    let client = Handle::from_ptr(handle);
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    println!("Hello world from Rust plugin {}!", client.name());
+
+    loop {
+        match client.wait_event(-1.) {
+            Event::Shutdown => {
+                return 0;
+            }
+            event => {
+                println!("Got event: {event}");
+            }
+        }
     }
 }

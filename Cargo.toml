@@ -10,7 +10,12 @@ keywords.workspace = true
 categories.workspace = true
 readme.workspace = true
 
-[dependencies]
+[lib]
+name = "kodik"
+crate-type = ["cdylib"]
 
 [lints]
 workspace = true
+
+[dependencies]
+mpv-client = {path = "../../mpv-client/mpv-client"}
