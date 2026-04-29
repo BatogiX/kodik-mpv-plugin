@@ -9,13 +9,25 @@ documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
 readme.workspace = true
+build = "build.rs"
 
 [lib]
 name = "kodik"
 crate-type = ["cdylib"]
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+expect_used = "deny"
+unwrap_used = "deny"
+panic = "deny"
+
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+multiple_crate_versions = "allow"
 
 [dependencies]
-mpv-client = {path = "../../mpv-client/mpv-client"}
+mpv-client = { path = "../../mpv-client/mpv-client" }
