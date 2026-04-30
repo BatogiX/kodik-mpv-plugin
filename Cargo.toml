@@ -9,7 +9,6 @@ documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
 readme.workspace = true
-build = "build.rs"
 
 [lib]
 name = "kodik"
