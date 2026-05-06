@@ -1,6 +1,7 @@
 [package]
 name = "kodik-mpv-plugin"
 version = "0.1.0"
+description = "mpv plugin to get direct links to Kodik"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -14,19 +15,11 @@ readme.workspace = true
 name = "kodik"
 crate-type = ["cdylib"]
 
-[lints.rust]
-unsafe_code = "deny"
-
-[lints.clippy]
-expect_used = "deny"
-unwrap_used = "deny"
-panic = "deny"
-
-all = { level = "deny", priority = -1 }
-pedantic = { level = "deny", priority = -1 }
-nursery = { level = "deny", priority = -1 }
-cargo = { level = "deny", priority = -1 }
-multiple_crate_versions = "allow"
+[lints]
+workspace = true
 
 [dependencies]
 mpv-client = { path = "../../mpv-client/mpv-client" }
+
+[features]
+bindgen = ["mpv-client/bindgen"]

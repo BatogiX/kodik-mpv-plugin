@@ -11,12 +11,8 @@ extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
 
     loop {
         match client.wait_event(-1.) {
-            Event::Shutdown => {
-                return 0;
-            }
-            event => {
-                println!("Got event: {event}");
-            }
+            Event::Shutdown => return 0,
+            event => println!("Got event: {event}"),
         }
     }
 }
