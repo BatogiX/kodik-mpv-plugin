@@ -12,14 +12,14 @@ categories.workspace = true
 readme.workspace = true
 
 [lib]
-name = "kodik"
 crate-type = ["cdylib"]
 
+name = "kodik"
 [lints]
 workspace = true
 
 [dependencies]
-mpv-client = { path = "../../mpv-client/mpv-client" }
+mpv-client = { workspace = true }
 
 [features]
 bindgen = ["mpv-client/bindgen"]
