@@ -13,8 +13,8 @@ readme.workspace = true
 
 [lib]
 crate-type = ["cdylib"]
-
 name = "kodik"
+
 [lints]
 workspace = true
 
