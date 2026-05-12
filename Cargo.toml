@@ -19,7 +19,18 @@ name = "kodik"
 workspace = true
 
 [dependencies]
+anyhow.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 mpv-client = { workspace = true }
+kodik-shiki.workspace = true
+kodik-parser.workspace = true
+reqwest = { workspace = true, features = [
+    "cookies",
+    "gzip",
+    "brotli",
+    "zstd",
+    "deflate",
+] }
 
 [features]
 bindgen = ["mpv-client/bindgen"]
