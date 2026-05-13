@@ -3,6 +3,7 @@ use std::ffi::c_int;
 use mpv_client::{Event, mpv_handle};
 
 mod hooks;
+mod models;
 mod mpv_ext;
 mod related;
 mod state;
@@ -29,6 +30,11 @@ extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
 
     if let Err(err) = ytdl::configure_ytdl_excludes(&mut state) {
         eprintln!("failed to configure ytdl excludes: {err:?}");
+        return 1;
+    }
+
+    if let Err(err) = related::expand_by_related(&mut state) {
+        eprintln!("failed to expand by related: {err:?}");
         return 1;
     }
 

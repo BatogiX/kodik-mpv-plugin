@@ -20,7 +20,7 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt"] }
 mpv-client = { workspace = true }
 kodik-shiki.workspace = true
 kodik-parser.workspace = true
@@ -31,6 +31,9 @@ reqwest = { workspace = true, features = [
     "zstd",
     "deflate",
 ] }
+serde = { workspace = true, features = ["derive"] }
+base64.workspace = true
+serde_json.workspace = true
 
 [features]
 bindgen = ["mpv-client/bindgen"]

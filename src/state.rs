@@ -23,7 +23,7 @@ impl PluginState<'_> {
             .deflate(true)
             .build()?;
 
-        let runtime = Builder::new_multi_thread()
+        let runtime = Builder::new_current_thread()
             .enable_all()
             .build()
             .context("failed to create tokio runtime")?;
