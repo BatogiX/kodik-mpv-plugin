@@ -2,10 +2,12 @@ use std::ffi::c_int;
 
 use mpv_client::{Event, mpv_handle};
 
+mod config;
 mod hooks;
 mod models;
 mod mpv_ext;
 mod related;
+mod shiki;
 mod state;
 mod ytdl;
 

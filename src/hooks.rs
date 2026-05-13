@@ -1,8 +1,8 @@
 use anyhow::Result;
 use mpv_client::Hook;
 
-use crate::MpvResultExt as _;
 use crate::state::PluginState;
+use crate::{MpvResultExt as _, shiki};
 
 const HOOK_ON_LOAD: u64 = 1;
 
@@ -15,9 +15,9 @@ pub fn register(state: &mut PluginState) -> Result<()> {
     Ok(())
 }
 
-pub fn handle_hook(_state: &mut PluginState, hook: &Hook) -> Result<()> {
+pub fn handle_hook(state: &mut PluginState, hook: &Hook) -> Result<()> {
     match hook.name() {
-        // "on_load" => related::expand_by_related(state),
+        "on_load" => shiki::on_load(state),
         _ => Ok(()),
     }
 }
