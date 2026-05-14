@@ -179,18 +179,18 @@ pub fn on_load(state: &mut PluginState) -> Result<()> {
     let episode = state.runtime().block_on(async {
         let kodik_videos = kodik_shiki::fetch_kodik_videos(state.client(), anime_payload.anime_id).await?;
 
-        let search_result = kodik_videos.find_search_result(None, None)?.clone();
+        let search_result = kodik_videos.find_search_result(None, None)?;
 
-        let episode = match search_result.seasons {
-            Some(mut seasons) => seasons
-                .pop_last()
+        let episode = search_result.seasons.as_ref().map_or(&search_result.link, |seasons| {
+            seasons
+                .iter()
+                .last()
                 .unwrap()
                 .1
                 .episodes
-                .remove(&anime_payload.episode)
-                .unwrap(),
-            None => search_result.link,
-        };
+                .get(&anime_payload.episode)
+                .unwrap()
+        });
 
         let mut kodik_response = kodik_parser::parse(state.client(), format!("https:{episode}").as_str()).await?;
         let episode = kodik_response.links.quality_720.remove(0).src;

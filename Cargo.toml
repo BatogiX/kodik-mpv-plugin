@@ -34,6 +34,7 @@ reqwest = { workspace = true, features = [
 serde = { workspace = true, features = ["derive"] }
 base64.workspace = true
 serde_json.workspace = true
+lazy-regex.workspace = true
 
 [features]
 bindgen = ["mpv-client/bindgen"]

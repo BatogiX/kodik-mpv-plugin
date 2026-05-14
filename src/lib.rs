@@ -11,12 +11,23 @@ mod shiki;
 mod state;
 mod ytdl;
 
+use crate::config::Config;
 use crate::mpv_ext::MpvResultExt;
 use crate::state::PluginState;
 
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
+    let config = match Config::load() {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("failed to read config: {err:?}");
+            return 1;
+        }
+    };
+
+    println!("config is: {config:#?}");
+
     let mut state = match PluginState::new(handle) {
         Ok(state) => state,
         Err(err) => {
