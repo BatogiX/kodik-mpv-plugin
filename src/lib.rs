@@ -4,6 +4,7 @@ use mpv_client::{Event, mpv_handle};
 
 mod config;
 mod hooks;
+mod logger;
 mod models;
 mod mpv_ext;
 mod related;
@@ -11,43 +12,32 @@ mod shiki;
 mod state;
 mod ytdl;
 
-use crate::config::Config;
 use crate::mpv_ext::MpvResultExt;
 use crate::state::PluginState;
 
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
-    let config = match Config::load() {
-        Ok(config) => config,
-        Err(err) => {
-            eprintln!("failed to read config: {err:?}");
-            return 1;
-        }
-    };
-
-    println!("config is: {config:#?}");
-
     let mut state = match PluginState::new(handle) {
         Ok(state) => state,
         Err(err) => {
-            eprintln!("failed to initialize plugin state: {err:?}");
+            log::error!("failed to initialize plugin state: {err:?}");
             return 1;
         }
     };
 
     if let Err(err) = hooks::register(&mut state) {
-        eprintln!("failed to register hooks: {err:?}");
+        log::error!("failed to register hooks: {err:?}");
         return 1;
     }
 
     if let Err(err) = ytdl::configure_ytdl_excludes(&mut state) {
-        eprintln!("failed to configure ytdl excludes: {err:?}");
+        log::error!("failed to configure ytdl excludes: {err:?}");
         return 1;
     }
 
     if let Err(err) = related::expand_by_related(&mut state) {
-        eprintln!("failed to expand by related: {err:?}");
+        log::error!("failed to expand by related: {err:?}");
         return 1;
     }
 
@@ -56,11 +46,18 @@ extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
             Event::Shutdown => return 0,
             Event::Hook(_, hook) => {
                 if let Err(err) = hooks::handle_hook(&mut state, &hook) {
-                    eprintln!("hook failed: {err:?}");
+                    log::error!("hook failed: {err:?}");
                 }
 
                 if let Err(err) = state.mpv_mut().hook_continue(hook.id()) {
-                    eprintln!("failed to continue hook {}: {:?}", hook.id(), err);
+                    log::error!("failed to continue hook {}: {:?}", hook.id(), err);
+                }
+            }
+            Event::ClientMessage(data) => {
+                if let ["key-binding", "watched", "u--", ..] = data.args().as_slice()
+                    && let Err(err) = shiki::mark_as_watched(&mut state)
+                {
+                    log::error!("failed to mark as watched: {err:?}");
                 }
             }
             _ => {}

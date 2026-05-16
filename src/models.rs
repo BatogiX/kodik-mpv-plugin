@@ -1,7 +1,5 @@
 use serde::Deserialize;
 
-pub type Playlist = Vec<PlaylistEntry>;
-
 #[derive(Debug, Deserialize)]
 pub struct PlaylistEntry {
     filename: String,

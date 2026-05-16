@@ -1,23 +1,27 @@
 use anyhow::{Context as _, Result};
-use std::{collections::HashMap, env, path::PathBuf, str::FromStr};
+use kodik_shiki::TranslationType;
+use log::LevelFilter;
+use reqwest::{Url, cookie::Jar};
+use std::{
+    collections::HashMap,
+    env,
+    fs::File,
+    io::{BufRead as _, BufReader},
+    path::PathBuf,
+    str::FromStr,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Quality {
-    P360,
-    P480,
     P720,
+    P480,
+    P360,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum RelatedMode {
     All,
     Essential,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum TranslationType {
-    Voice,
-    Subtitles,
 }
 
 #[derive(Debug)]
@@ -36,6 +40,8 @@ pub struct Config {
 
     /// Expand a media database URL into all related URLs [possible values: all, essential]
     related_mode: RelatedMode,
+
+    log_level: LevelFilter,
 }
 
 impl FromStr for Quality {
@@ -59,18 +65,6 @@ impl FromStr for RelatedMode {
             "all" => Ok(Self::All),
             "essential" => Ok(Self::Essential),
             value => anyhow::bail!("invalid `related_mode`: `{value}`, expected all or essential"),
-        }
-    }
-}
-
-impl FromStr for TranslationType {
-    type Err = anyhow::Error;
-
-    fn from_str(value: &str) -> Result<Self> {
-        match value.trim() {
-            "voice" => Ok(Self::Voice),
-            "subtitles" => Ok(Self::Subtitles),
-            value => anyhow::bail!("invalid `translation_type`: `{value}`, expected voice or subtitles"),
         }
     }
 }
@@ -151,6 +145,7 @@ impl Config {
         let cookies = expand_tilde(required(&map, "cookies")?);
         let translation_title = required(&map, "translation_title")?.to_string();
         let translation_type = required(&map, "translation_type")?.parse::<TranslationType>()?;
+        let log_level = required(&map, "log_level")?.parse::<LevelFilter>()?;
         let related_mode = required(&map, "related_mode")?
             .parse()
             .context("failed to parse `related_mode`")?;
@@ -161,6 +156,7 @@ impl Config {
             translation_title,
             translation_type,
             related_mode,
+            log_level,
         })
     }
 
@@ -188,6 +184,54 @@ impl Config {
 
     pub const fn related_mode(&self) -> RelatedMode {
         self.related_mode
+    }
+
+    pub fn load_cookies(&self) -> Result<Jar> {
+        let jar = Jar::default();
+
+        if !self.cookies.as_os_str().is_empty() {
+            let file = File::open(self.cookies())?;
+            let mut reader = BufReader::new(file);
+            let mut line = String::new();
+
+            while reader.read_line(&mut line)? > 0 {
+                let trimmed = line.trim();
+
+                if trimmed.starts_with('#') || trimmed.is_empty() {
+                    line.clear();
+                    continue;
+                }
+
+                let mut parts = trimmed.splitn(7, '\t');
+
+                let domain = parts.next().context("malformed cookie: missing domain")?;
+                let key = parts.nth(4).context("malformed cookie: missing name")?;
+                let value = parts.next().context("malformed cookie: missing value")?;
+
+                let mut cookie = String::with_capacity(key.len() + value.len() + domain.len() + 10);
+                cookie.push_str(key);
+                cookie.push('=');
+                cookie.push_str(value);
+                cookie.push_str("; Domain=");
+                cookie.push_str(domain);
+
+                let domain = domain.trim_start_matches('.');
+                let mut url_str = String::with_capacity(8 + domain.len());
+                url_str.push_str("https://");
+                url_str.push_str(domain);
+                let url = Url::parse(&url_str)?;
+
+                jar.add_cookie_str(&cookie, &url);
+
+                line.clear();
+            }
+        }
+
+        Ok(jar)
+    }
+
+    pub const fn log_level(&self) -> LevelFilter {
+        self.log_level
     }
 }
 
