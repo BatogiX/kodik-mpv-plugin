@@ -10,7 +10,6 @@ mod mpv_ext;
 mod related;
 mod shiki;
 mod state;
-mod ytdl;
 
 use crate::mpv_ext::MpvResultExt;
 use crate::state::PluginState;
@@ -28,11 +27,6 @@ extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
 
     if let Err(err) = hooks::register(&mut state) {
         log::error!("failed to register hooks: {err:?}");
-        return 1;
-    }
-
-    if let Err(err) = ytdl::configure_ytdl_excludes(&mut state) {
-        log::error!("failed to configure ytdl excludes: {err:?}");
         return 1;
     }
 
