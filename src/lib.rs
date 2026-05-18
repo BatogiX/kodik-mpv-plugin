@@ -17,6 +17,8 @@ use crate::state::PluginState;
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
+    log::set_max_level(log::LevelFilter::Error);
+
     let mut state = match PluginState::new(handle) {
         Ok(state) => state,
         Err(err) => {
@@ -24,6 +26,8 @@ extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
             return 1;
         }
     };
+
+    logger::init_logger(state.mpv_mut().name(), state.config().log_level());
 
     if let Err(err) = hooks::register(&mut state) {
         log::error!("failed to register hooks: {err:?}");

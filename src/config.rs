@@ -1,15 +1,18 @@
 use anyhow::{Context as _, Result};
 use kodik_shiki::TranslationType;
 use log::LevelFilter;
+use mpv_client::{Handle, Node};
 use reqwest::{Url, cookie::Jar};
 use std::{
     collections::HashMap,
     env,
-    fs::File,
+    fs::{self, File},
     io::{BufRead as _, BufReader},
     path::PathBuf,
     str::FromStr,
 };
+
+use crate::mpv_ext::MpvResultExt;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Quality {
@@ -18,10 +21,11 @@ pub enum Quality {
     P360,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RelatedMode {
     All,
     Essential,
+    None,
 }
 
 #[derive(Debug)]
@@ -30,15 +34,15 @@ pub struct Config {
     quality: Quality,
 
     /// Netscape formatted file to read cookies from
-    cookies: PathBuf,
+    cookies: Option<PathBuf>,
 
     /// Specify translation title
-    translation_title: String,
+    translation_title: Option<String>,
 
     /// Specify translation type [possible values: voice, subtitles]
-    translation_type: TranslationType,
+    translation_type: Option<TranslationType>,
 
-    /// Expand a media database URL into all related URLs [possible values: all, essential]
+    /// Expand a media database URL into all related URLs [possible values: all, essential, none]
     related_mode: RelatedMode,
 
     log_level: LevelFilter,
@@ -64,6 +68,7 @@ impl FromStr for RelatedMode {
         match value.trim() {
             "all" => Ok(Self::All),
             "essential" => Ok(Self::Essential),
+            "none" => Ok(Self::None),
             value => anyhow::bail!("invalid `related_mode`: `{value}`, expected all or essential"),
         }
     }
@@ -126,12 +131,16 @@ fn required<'a>(map: &'a HashMap<String, String>, key: &str) -> Result<&'a str> 
 }
 
 impl Config {
-    pub fn load() -> Result<Self> {
-        let path = default_config_path()?;
+    pub fn load(mpv: &mut Handle) -> Result<Self> {
+        let node = mpv
+            .command_ret(["expand-path", "~~/"])
+            .mpv_context("failed to `expand-path \"~~/\"`")?;
 
-        eprintln!("loading config from: {}", path.display());
+        let Node::String(path) = node else {
+            anyhow::bail!("`expand-path \"~~/\"` returned non-string value");
+        };
 
-        Self::from_conf_file(path)
+        Self::from_conf_file(PathBuf::from(path).join("script-opts").join("kodik.conf"))
     }
 
     fn from_conf_str(input: &str) -> Result<Self> {
@@ -142,13 +151,16 @@ impl Config {
             None => Quality::P720,
         };
 
-        let cookies = expand_tilde(required(&map, "cookies")?);
-        let translation_title = required(&map, "translation_title")?.to_string();
-        let translation_type = required(&map, "translation_type")?.parse::<TranslationType>()?;
-        let log_level = required(&map, "log_level")?.parse::<LevelFilter>()?;
-        let related_mode = required(&map, "related_mode")?
-            .parse()
-            .context("failed to parse `related_mode`")?;
+        let cookies = required(&map, "cookies").ok().map(expand_tilde);
+        let translation_title = required(&map, "translation_title")
+            .ok()
+            .map(std::borrow::ToOwned::to_owned);
+        let translation_type = required(&map, "translation_type")
+            .ok()
+            .map(str::parse::<TranslationType>)
+            .transpose()?;
+        let log_level = required(&map, "log_level").map_or(Ok(LevelFilter::Error), str::parse::<LevelFilter>)?;
+        let related_mode = required(&map, "related_mode").map_or(Ok(RelatedMode::None), str::parse)?;
 
         Ok(Self {
             quality,
@@ -162,23 +174,22 @@ impl Config {
 
     fn from_conf_file(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
-        let input = std::fs::read_to_string(path)?;
-        Self::from_conf_str(&input)
+        fs::read_to_string(path).map_or_else(|_| Self::from_conf_str(""), |input| Self::from_conf_str(&input))
     }
 
     pub const fn quality(&self) -> Quality {
         self.quality
     }
 
-    pub const fn cookies(&self) -> &PathBuf {
-        &self.cookies
+    pub const fn cookies(&self) -> Option<&PathBuf> {
+        self.cookies.as_ref()
     }
 
-    pub fn translation_title(&self) -> &str {
-        &self.translation_title
+    pub fn translation_title(&self) -> Option<&str> {
+        self.translation_title.as_deref()
     }
 
-    pub const fn translation_type(&self) -> TranslationType {
+    pub const fn translation_type(&self) -> Option<TranslationType> {
         self.translation_type
     }
 
@@ -189,42 +200,44 @@ impl Config {
     pub fn load_cookies(&self) -> Result<Jar> {
         let jar = Jar::default();
 
-        if !self.cookies.as_os_str().is_empty() {
-            let file = File::open(self.cookies())?;
-            let mut reader = BufReader::new(file);
-            let mut line = String::new();
+        let Some(cookies) = &self.cookies else {
+            return Ok(jar);
+        };
 
-            while reader.read_line(&mut line)? > 0 {
-                let trimmed = line.trim();
+        let file = File::open(cookies)?;
+        let mut reader = BufReader::new(file);
+        let mut line = String::new();
 
-                if trimmed.starts_with('#') || trimmed.is_empty() {
-                    line.clear();
-                    continue;
-                }
+        while reader.read_line(&mut line)? > 0 {
+            let trimmed = line.trim();
 
-                let mut parts = trimmed.splitn(7, '\t');
-
-                let domain = parts.next().context("malformed cookie: missing domain")?;
-                let key = parts.nth(4).context("malformed cookie: missing name")?;
-                let value = parts.next().context("malformed cookie: missing value")?;
-
-                let mut cookie = String::with_capacity(key.len() + value.len() + domain.len() + 10);
-                cookie.push_str(key);
-                cookie.push('=');
-                cookie.push_str(value);
-                cookie.push_str("; Domain=");
-                cookie.push_str(domain);
-
-                let domain = domain.trim_start_matches('.');
-                let mut url_str = String::with_capacity(8 + domain.len());
-                url_str.push_str("https://");
-                url_str.push_str(domain);
-                let url = Url::parse(&url_str)?;
-
-                jar.add_cookie_str(&cookie, &url);
-
+            if trimmed.starts_with('#') || trimmed.is_empty() {
                 line.clear();
+                continue;
             }
+
+            let mut parts = trimmed.splitn(7, '\t');
+
+            let domain = parts.next().context("malformed cookie: missing domain")?;
+            let key = parts.nth(4).context("malformed cookie: missing name")?;
+            let value = parts.next().context("malformed cookie: missing value")?;
+
+            let mut cookie = String::with_capacity(key.len() + value.len() + domain.len() + 10);
+            cookie.push_str(key);
+            cookie.push('=');
+            cookie.push_str(value);
+            cookie.push_str("; Domain=");
+            cookie.push_str(domain);
+
+            let domain = domain.trim_start_matches('.');
+            let mut url_str = String::with_capacity(8 + domain.len());
+            url_str.push_str("https://");
+            url_str.push_str(domain);
+            let url = Url::parse(&url_str)?;
+
+            jar.add_cookie_str(&cookie, &url);
+
+            line.clear();
         }
 
         Ok(jar)
@@ -232,35 +245,5 @@ impl Config {
 
     pub const fn log_level(&self) -> LevelFilter {
         self.log_level
-    }
-}
-
-fn default_config_path() -> Result<PathBuf> {
-    Ok(mpv_config_dir()?.join("script-opts").join("kodik.conf"))
-}
-
-fn mpv_config_dir() -> Result<PathBuf> {
-    if let Some(mpv_home) = env::var_os("MPV_HOME") {
-        return Ok(PathBuf::from(mpv_home));
-    }
-
-    #[cfg(windows)]
-    {
-        let appdata = env::var_os("APPDATA")
-            .map(PathBuf::from)
-            .context("APPDATA environment variable is not set")?;
-
-        Ok(appdata.join("mpv"))
-    }
-
-    #[cfg(not(windows))]
-    {
-        if let Some(xdg_config_home) = env::var_os("XDG_CONFIG_HOME") {
-            return Ok(PathBuf::from(xdg_config_home).join("mpv"));
-        }
-
-        let home = home_dir().context("HOME environment variable is not set")?;
-
-        Ok(home.join(".config").join("mpv"))
     }
 }

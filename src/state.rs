@@ -1,25 +1,25 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context as _, Result};
+use kodik_shiki::KodikApiResponse;
 use mpv_client::{Handle, mpv_handle};
 use reqwest::Client;
 use tokio::runtime::{Builder, Runtime};
 
-use crate::{config::Config, logger};
+use crate::config::Config;
 
 pub struct PluginState<'a> {
     mpv: &'a mut Handle,
     client: Client,
     runtime: Runtime,
     config: Config,
+    kodik_videos: HashMap<String, KodikApiResponse>,
 }
 
 impl PluginState<'_> {
     pub fn new(handle: *mut mpv_handle) -> Result<Self> {
         let mpv = Handle::from_ptr(handle);
-        let config = Config::load()?;
-
-        logger::init_logger(mpv.name(), config.log_level());
+        let config = Config::load(mpv)?;
 
         let client = Client::builder()
             .cookie_store(true)
@@ -35,11 +35,14 @@ impl PluginState<'_> {
             .build()
             .context("failed to create tokio runtime")?;
 
+        let kodik_videos = HashMap::new();
+
         Ok(Self {
             mpv,
             client,
             runtime,
             config,
+            kodik_videos,
         })
     }
 
@@ -57,5 +60,13 @@ impl PluginState<'_> {
 
     pub const fn config(&self) -> &Config {
         &self.config
+    }
+
+    pub const fn kodik_videos_mut(&mut self) -> &mut HashMap<String, KodikApiResponse> {
+        &mut self.kodik_videos
+    }
+
+    pub const fn kodik_videos(&self) -> &HashMap<String, KodikApiResponse> {
+        &self.kodik_videos
     }
 }
