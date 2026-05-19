@@ -1,7 +1,7 @@
 use std::time::Duration;
 
+use crate::hooks::Payload;
 use anyhow::{Context as _, Result};
-use base64::{Engine as _, prelude::BASE64_URL_SAFE_NO_PAD};
 use kodik_shiki::{AnimeStatus, Related, UserRate, UserRateStatus};
 use kodik_utils::{GET, PATCH as _, POST};
 use mpv_client::Node;
@@ -13,7 +13,7 @@ use crate::{
     state::PluginState,
 };
 
-struct AnimeMetaData {
+struct Anime {
     id: usize,
     name: String,
     status: AnimeStatus,
@@ -22,7 +22,7 @@ struct AnimeMetaData {
     user_rate: Option<UserRate>,
 }
 
-impl AnimeMetaData {
+impl Anime {
     const fn new(
         id: usize,
         name: String,
@@ -43,7 +43,7 @@ impl AnimeMetaData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AnimePayload {
+pub struct ShikiPayload {
     pub anime_id: usize,
     pub episode: usize,
     pub episodes: usize,
@@ -51,25 +51,10 @@ pub struct AnimePayload {
     pub user_rate: Option<UserRate>,
 }
 
-impl AnimePayload {
-    pub fn encode(&self) -> Result<String> {
-        let json = serde_json::to_vec(self).context("failed to serialize kodik payload")?;
-        Ok(BASE64_URL_SAFE_NO_PAD.encode(json))
-    }
-
-    pub fn decode(encoded: &str) -> Result<Self> {
-        let bytes = BASE64_URL_SAFE_NO_PAD
-            .decode(encoded)
-            .context("failed to decode kodik payload")?;
-
-        serde_json::from_slice(&bytes).context("failed to deserialize kodik payload")
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct MpvFileOptions {
     pub title: Option<String>,
-    pub payload: Option<AnimePayload>,
+    pub payload: Payload,
 }
 
 impl MpvFileOptions {
@@ -80,14 +65,13 @@ impl MpvFileOptions {
             options.push(format!("force-media-title={}", escape_mpv_option_value(title)));
         }
 
-        if let Some(payload) = &self.payload {
-            let encoded = payload.encode()?;
+        let payload = &self.payload;
+        let encoded = payload.encode()?;
 
-            options.push(format!(
-                "script-opts-append=kodik-payload={}",
-                escape_mpv_option_value(&encoded)
-            ));
-        }
+        options.push(format!(
+            "script-opts-append=kodik-payload={}",
+            escape_mpv_option_value(&encoded)
+        ));
 
         Ok(options.join(","))
     }
@@ -97,7 +81,7 @@ fn escape_mpv_option_value(value: &str) -> String {
     value.replace('\\', "\\\\").replace(',', "\\,")
 }
 
-pub fn expand_by_related(state: &mut PluginState, url: &str, host: &str, index: usize) -> Result<()> {
+pub fn expand(state: &mut PluginState, url: &str, host: &str) -> Result<()> {
     let animes = state.runtime().block_on(async {
         let shiki_api_animes = kodik_shiki::fetch_shiki_api_animes(state.client(), url).await?;
 
@@ -106,7 +90,7 @@ pub fn expand_by_related(state: &mut PluginState, url: &str, host: &str, index: 
             .as_ref()
             .filter(|_| state.config().related_mode() != RelatedMode::None)
         else {
-            return Ok(vec![AnimeMetaData::new(
+            return Ok(vec![Anime::new(
                 shiki_api_animes.id,
                 shiki_api_animes.name,
                 shiki_api_animes.status,
@@ -127,12 +111,12 @@ pub fn expand_by_related(state: &mut PluginState, url: &str, host: &str, index: 
         };
         related.sort_by_chrono();
 
-        Ok::<Vec<AnimeMetaData>, anyhow::Error>(
+        Ok::<Vec<Anime>, anyhow::Error>(
             related
                 .animes
                 .into_iter()
                 .map(|anime| {
-                    AnimeMetaData::new(
+                    Anime::new(
                         anime.id,
                         anime.name,
                         anime.status,
@@ -147,7 +131,12 @@ pub fn expand_by_related(state: &mut PluginState, url: &str, host: &str, index: 
         )
     })?;
 
-    let mut insert_index = index + 1;
+    let current_index: i64 = state
+        .mpv_mut()
+        .get_property("playlist-pos")
+        .mpv_context("failed to get current playlist position")?;
+
+    let mut insert_index = current_index + 1;
     for anime in animes {
         let episodes = if anime.status == AnimeStatus::Ongoing {
             anime.episodes_aired
@@ -168,7 +157,7 @@ pub fn expand_by_related(state: &mut PluginState, url: &str, host: &str, index: 
                 format!("{} - Episode {}", anime.name, episode)
             };
 
-            let payload = AnimePayload {
+            let shiki_payload = ShikiPayload {
                 anime_id: anime.id,
                 episode,
                 user_rate: anime.user_rate,
@@ -178,7 +167,7 @@ pub fn expand_by_related(state: &mut PluginState, url: &str, host: &str, index: 
 
             let file_options = MpvFileOptions {
                 title: Some(media_title.clone()),
-                payload: Some(payload),
+                payload: Payload::Shiki(shiki_payload),
             };
 
             let options = file_options.to_mpv_options_string()?;
@@ -200,38 +189,19 @@ pub fn expand_by_related(state: &mut PluginState, url: &str, host: &str, index: 
 
     state
         .mpv_mut()
-        .command(["playlist-remove", index.to_string().as_str()])
+        .command(["playlist-remove", &current_index.to_string()])
         .mpv_context("failed to remove original playlist entry")?;
 
     Ok(())
 }
 
-pub fn on_load(state: &mut PluginState) -> Result<()> {
-    let node: Node = state
-        .mpv_mut()
-        .get_property("options/script-opts")
-        .mpv_context("failed to get script-opts")?;
-
-    let Node::Map(mut script_opts) = node else {
-        return Ok(());
-    };
-
-    let Some(kodik_playload) = script_opts.remove("kodik-payload") else {
-        return Ok(());
-    };
-
-    let Node::String(kodik_playload) = kodik_playload else {
-        return Ok(());
-    };
-
-    let anime_payload = AnimePayload::decode(&kodik_playload)?;
-
-    let key = format!("{}/animes/{}", anime_payload.host, anime_payload.anime_id);
+pub fn on_load(state: &mut PluginState, payload: ShikiPayload) -> Result<()> {
+    let key = format!("{}/animes/{}", payload.host, payload.anime_id);
 
     if !state.kodik_videos_mut().contains_key(&key) {
         let videos = state
             .runtime()
-            .block_on(kodik_shiki::fetch_kodik_videos(state.client(), anime_payload.anime_id))?;
+            .block_on(kodik_shiki::fetch_kodik_videos(state.client(), payload.anime_id))?;
 
         state.kodik_videos_mut().insert(key.clone(), videos);
     }
@@ -239,18 +209,13 @@ pub fn on_load(state: &mut PluginState) -> Result<()> {
     let kodik_videos = state
         .kodik_videos()
         .get(&key)
-        .expect("kodik videos should exist after insert");
+        .context("kodik videos should exist after insert")?;
 
-    let search_result =
-        kodik_videos.find_search_result(state.config().translation_title(), state.config().translation_type())?;
+    let result = kodik_videos.find_result(state.config().translation_title(), state.config().translation_type())?;
 
-    let Some(episode) = search_result
-        .seasons
-        .as_ref()
-        .map_or(Some(&search_result.link), |seasons| {
-            seasons.iter().last().unwrap().1.episodes.get(&anime_payload.episode)
-        })
-    else {
+    let Some(episode) = result.seasons.as_ref().map_or(Some(&result.link), |seasons| {
+        seasons.iter().last().unwrap().1.episodes.get(&payload.episode)
+    }) else {
         anyhow::bail!("episode not found");
     };
 
@@ -278,7 +243,7 @@ pub fn on_load(state: &mut PluginState) -> Result<()> {
             state
                 .mpv_mut()
                 .set_property("stream-open-filename", link)
-                .mpv_context("failed to spoof stream-open-filename")?;
+                .mpv_context("failed to substitute stream-open-filename")?;
 
             break;
         }
@@ -315,29 +280,40 @@ pub fn mark_as_watched(state: &mut PluginState) -> Result<()> {
         anyhow::bail!("`script-opts` is not a map")
     };
 
-    let Some(kodik_payload) = script_opts.remove("kodik-payload") else {
+    let Some(payload) = script_opts.remove("kodik-payload") else {
         anyhow::bail!("missing `kodik-payload` in `script-opts`")
     };
 
-    let Node::String(kodik_payload) = kodik_payload else {
+    let Node::String(payload) = payload else {
         anyhow::bail!("`kodik-payload` is not a string")
     };
 
-    let anime_payload = AnimePayload::decode(&kodik_payload)?;
+    let payload = Payload::decode(&payload)?;
+    match payload {
+        Payload::Shiki(shiki_payload) => mark_as_watched_shiki(state, shiki_payload),
+        Payload::MAL => todo!(),
+        Payload::IMDB => todo!(),
+        Payload::Kinopoisk => todo!(),
+        Payload::MDL => todo!(),
+    }?;
 
+    Ok(())
+}
+
+fn mark_as_watched_shiki(state: &mut PluginState, shiki_payload: ShikiPayload) -> Result<()> {
     let user_id = {
         let whoami: ShikiApiUsersWhoami = state.runtime().block_on(async {
             state
                 .client()
-                .fetch_as_json(&format!("https://{}/api/users/whoami", anime_payload.host))
+                .fetch_as_json(&format!("https://{}/api/users/whoami", shiki_payload.host))
                 .await
         })?;
 
         whoami.id
     };
 
-    let is_last_episode = anime_payload.episode == anime_payload.episodes;
-    let osd_text = if let Some(user_rate) = anime_payload.user_rate.as_ref() {
+    let is_last_episode = shiki_payload.episode == shiki_payload.episodes;
+    let osd_text = if let Some(user_rate) = shiki_payload.user_rate.as_ref() {
         let (user_rate_rewatches, user_rate_status, completed_rewatch) = if is_last_episode {
             let completed_rewatch =
                 user_rate.status == UserRateStatus::Rewatching || user_rate.status == UserRateStatus::Completed;
@@ -356,10 +332,10 @@ pub fn mark_as_watched(state: &mut PluginState) -> Result<()> {
         };
 
         let shiki_api_user_rates = ShikiApiUserRates::new(
-            anime_payload.episode,
+            shiki_payload.episode,
             user_rate_rewatches,
             user_rate_status,
-            anime_payload.anime_id,
+            shiki_payload.anime_id,
             UserRatesTargetType::Anime,
             user_id,
         );
@@ -368,15 +344,15 @@ pub fn mark_as_watched(state: &mut PluginState) -> Result<()> {
             state
                 .client()
                 .patch_json_as_json(
-                    &format!("https://{}/api/v2/user_rates/{}", anime_payload.host, user_rate.id),
+                    &format!("https://{}/api/v2/user_rates/{}", shiki_payload.host, user_rate.id),
                     &shiki_api_user_rates,
                 )
                 .await
         })?;
 
         mark_as_watched_osd_text(
-            anime_payload.episode,
-            anime_payload.episodes,
+            shiki_payload.episode,
+            shiki_payload.episodes,
             user_rate_status,
             user_rate_rewatches,
             completed_rewatch,
@@ -389,10 +365,10 @@ pub fn mark_as_watched(state: &mut PluginState) -> Result<()> {
         };
 
         let shiki_api_user_rates = ShikiApiUserRates::new(
-            anime_payload.episode,
+            shiki_payload.episode,
             0,
             user_rate_status,
-            anime_payload.anime_id,
+            shiki_payload.anime_id,
             UserRatesTargetType::Anime,
             user_id,
         );
@@ -401,15 +377,15 @@ pub fn mark_as_watched(state: &mut PluginState) -> Result<()> {
             state
                 .client()
                 .post_json_as_json(
-                    &format!("https://{}/api/v2/user_rates/", anime_payload.host),
+                    &format!("https://{}/api/v2/user_rates/", shiki_payload.host),
                     &shiki_api_user_rates,
                 )
                 .await
         })?;
 
         mark_as_watched_osd_text(
-            anime_payload.episode,
-            anime_payload.episodes,
+            shiki_payload.episode,
+            shiki_payload.episodes,
             user_rate_status,
             0,
             false,

@@ -5,9 +5,7 @@ use mpv_client::{Event, mpv_handle};
 mod config;
 mod hooks;
 mod logger;
-mod models;
 mod mpv_ext;
-mod related;
 mod shiki;
 mod state;
 
@@ -31,11 +29,6 @@ extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
 
     if let Err(err) = hooks::register(&mut state) {
         log::error!("failed to register hooks: {err:?}");
-        return 1;
-    }
-
-    if let Err(err) = related::expand_by_related(&mut state) {
-        log::error!("failed to expand by related: {err:?}");
         return 1;
     }
 
