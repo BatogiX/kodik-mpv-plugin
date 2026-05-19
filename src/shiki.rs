@@ -1,10 +1,10 @@
-use std::time::Duration;
+use std::{fmt::Display, str::FromStr, time::Duration};
 
-use crate::hooks::Payload;
+use crate::hooks::{MpvFileOptions, Payload};
 use anyhow::{Context as _, Result};
 use kodik_shiki::{AnimeStatus, Related, UserRate, UserRateStatus};
 use kodik_utils::{GET, PATCH as _, POST};
-use mpv_client::Node;
+use reqwest::{Url, cookie::CookieStore};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -49,36 +49,6 @@ pub struct ShikiPayload {
     pub episodes: usize,
     pub host: String,
     pub user_rate: Option<UserRate>,
-}
-
-#[derive(Debug)]
-pub struct MpvFileOptions {
-    pub title: Option<String>,
-    pub payload: Payload,
-}
-
-impl MpvFileOptions {
-    pub fn to_mpv_options_string(&self) -> Result<String> {
-        let mut options = Vec::new();
-
-        if let Some(title) = &self.title {
-            options.push(format!("force-media-title={}", escape_mpv_option_value(title)));
-        }
-
-        let payload = &self.payload;
-        let encoded = payload.encode()?;
-
-        options.push(format!(
-            "script-opts-append=kodik-payload={}",
-            escape_mpv_option_value(&encoded)
-        ));
-
-        Ok(options.join(","))
-    }
-}
-
-fn escape_mpv_option_value(value: &str) -> String {
-    value.replace('\\', "\\\\").replace(',', "\\,")
 }
 
 pub fn expand(state: &mut PluginState, url: &str, host: &str) -> Result<()> {
@@ -195,7 +165,7 @@ pub fn expand(state: &mut PluginState, url: &str, host: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn on_load(state: &mut PluginState, payload: ShikiPayload) -> Result<()> {
+pub fn on_load(state: &mut PluginState, payload: &ShikiPayload) -> Result<()> {
     let key = format!("{}/animes/{}", payload.host, payload.anime_id);
 
     if !state.kodik_videos_mut().contains_key(&key) {
@@ -253,10 +223,10 @@ pub fn on_load(state: &mut PluginState, payload: ShikiPayload) -> Result<()> {
 }
 
 fn mark_as_watched_osd_text(
-    episode: impl std::fmt::Display,
-    episodes: impl std::fmt::Display,
+    episode: impl Display,
+    episodes: impl Display,
     status: UserRateStatus,
-    rewatches: impl std::fmt::Display,
+    rewatches: impl Display,
     completed_rewatch: bool,
 ) -> String {
     match status {
@@ -270,37 +240,20 @@ fn mark_as_watched_osd_text(
     }
 }
 
-pub fn mark_as_watched(state: &mut PluginState) -> Result<()> {
-    let node: Node = state
-        .mpv_mut()
-        .get_property("options/script-opts")
-        .mpv_context("failed to get script-opts")?;
+pub fn mark_as_watched(state: &mut PluginState, shiki_payload: &ShikiPayload) -> Result<()> {
+    let url = Url::from_str(&format!("https://{}", shiki_payload.host))?;
 
-    let Node::Map(mut script_opts) = node else {
-        anyhow::bail!("`script-opts` is not a map")
-    };
+    let has_kawai_session = state
+        .jar()
+        .cookies(&url)
+        .map(|cookies| cookies.to_str().map(|s| s.contains("_kawai_session")))
+        .transpose()?
+        .unwrap_or(false);
 
-    let Some(payload) = script_opts.remove("kodik-payload") else {
-        anyhow::bail!("missing `kodik-payload` in `script-opts`")
-    };
+    if state.config().cookies().is_none() || !has_kawai_session {
+        anyhow::bail!("there is no cookies for `{url}`");
+    }
 
-    let Node::String(payload) = payload else {
-        anyhow::bail!("`kodik-payload` is not a string")
-    };
-
-    let payload = Payload::decode(&payload)?;
-    match payload {
-        Payload::Shiki(shiki_payload) => mark_as_watched_shiki(state, shiki_payload),
-        Payload::MAL => todo!(),
-        Payload::IMDB => todo!(),
-        Payload::Kinopoisk => todo!(),
-        Payload::MDL => todo!(),
-    }?;
-
-    Ok(())
-}
-
-fn mark_as_watched_shiki(state: &mut PluginState, shiki_payload: ShikiPayload) -> Result<()> {
     let user_id = {
         let whoami: ShikiApiUsersWhoami = state.runtime().block_on(async {
             state
@@ -451,8 +404,8 @@ impl ShikiApiUserRatesUserRate {
 #[derive(Debug, Serialize)]
 enum UserRatesTargetType {
     Anime,
-    Manga,
-    VisualNovel,
+    // Manga,
+    // VisualNovel,
 }
 
 #[derive(Debug, Deserialize)]

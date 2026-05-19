@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{Context as _, Result};
 use kodik_shiki::KodikApiResponse;
 use mpv_client::{Handle, mpv_handle};
-use reqwest::Client;
+use reqwest::{Client, cookie::Jar};
 use tokio::runtime::{Builder, Runtime};
 
 use crate::config::Config;
@@ -14,12 +14,14 @@ pub struct PluginState<'a> {
     runtime: Runtime,
     config: Config,
     kodik_videos: HashMap<String, KodikApiResponse>,
+    jar: Arc<Jar>,
 }
 
 impl PluginState<'_> {
     pub fn new(handle: *mut mpv_handle) -> Result<Self> {
         let mpv = Handle::from_ptr(handle);
         let config = Config::load(mpv)?;
+        let jar = Arc::new(config.load_cookies()?);
 
         let client = Client::builder()
             .cookie_store(true)
@@ -27,7 +29,7 @@ impl PluginState<'_> {
             .brotli(true)
             .zstd(true)
             .deflate(true)
-            .cookie_provider(Arc::new(config.load_cookies()?))
+            .cookie_provider(Arc::clone(&jar))
             .build()?;
 
         let runtime = Builder::new_current_thread()
@@ -43,6 +45,7 @@ impl PluginState<'_> {
             runtime,
             config,
             kodik_videos,
+            jar,
         })
     }
 
@@ -68,5 +71,9 @@ impl PluginState<'_> {
 
     pub const fn kodik_videos(&self) -> &HashMap<String, KodikApiResponse> {
         &self.kodik_videos
+    }
+
+    pub fn jar(&self) -> &Jar {
+        &self.jar
     }
 }

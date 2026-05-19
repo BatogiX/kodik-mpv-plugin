@@ -46,7 +46,7 @@ extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
             }
             Event::ClientMessage(data) => {
                 if let ["key-binding", "watched", "u--", ..] = data.args().as_slice()
-                    && let Err(err) = shiki::mark_as_watched(&mut state)
+                    && let Err(err) = hooks::mark_as_watched(&mut state)
                 {
                     log::error!("failed to mark as watched: {err:?}");
                 }
