@@ -1,23 +1,24 @@
-use env_logger::Builder;
+use env_logger::{Builder, WriteStyle};
 use log::{Level, LevelFilter};
 use std::io::Write;
 
 pub fn init_logger(module: impl Into<String>, level: LevelFilter) {
-    const fn mpv_level(level: Level) -> &'static str {
-        match level {
-            Level::Error => "error",
-            Level::Warn => "warn",
-            Level::Info => "info",
-            Level::Debug => "v",
-            Level::Trace => "trace",
-        }
-    }
-
     let module = module.into();
 
     let _ = Builder::new()
         .filter_level(LevelFilter::Off)
         .filter_module(&module, level)
-        .format(move |buf, record| writeln!(buf, "[{}] {}: {}", module, mpv_level(record.level()), record.args()))
+        .write_style(WriteStyle::Auto)
+        .format(move |buf, record| {
+            let line = format!("[{}] {}", module, record.args());
+
+            match record.level() {
+                Level::Error | Level::Warn => {
+                    let style = buf.default_level_style(record.level());
+                    writeln!(buf, "{style}{line}{style:#}")
+                }
+                _ => writeln!(buf, "{line}"),
+            }
+        })
         .try_init();
 }

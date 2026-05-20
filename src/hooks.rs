@@ -145,7 +145,7 @@ pub fn mark_as_watched(state: &mut PluginState) -> Result<()> {
 
     let payload = Payload::decode(&payload)?;
     match payload {
-        Payload::Shiki(shiki_payload) => shiki::mark_as_watched(state, &shiki_payload),
+        Payload::Shiki(shiki_payload) => shiki::mark_as_watched(state, shiki_payload),
         Payload::Mal => todo!(),
         Payload::Imdb => todo!(),
         Payload::Kinopoisk => todo!(),

@@ -52,6 +52,18 @@ pub struct ShikiPayload {
     pub user_id: Option<usize>,
 }
 
+#[derive(Debug, Serialize)]
+enum UserRatesTargetType {
+    Anime,
+    // Manga,
+    // VisualNovel,
+}
+
+#[derive(Debug, Deserialize)]
+struct ShikiApiUsersWhoami {
+    id: usize,
+}
+
 pub fn expand(state: &mut PluginState, url: &str, host: &str) -> Result<()> {
     let animes = state.runtime().block_on(async {
         let shiki_api_animes = kodik_shiki::fetch_shiki_api_animes(state.client(), url).await?;
@@ -117,6 +129,7 @@ pub fn expand(state: &mut PluginState, url: &str, host: &str) -> Result<()> {
         .mpv_context("failed to get current playlist position")?;
 
     let mut insert_index = current_index + 1;
+    let mut target_index: Option<i64> = None;
     for anime in animes {
         let episodes = if anime.status == AnimeStatus::Ongoing {
             anime.episodes_aired
@@ -125,17 +138,28 @@ pub fn expand(state: &mut PluginState, url: &str, host: &str) -> Result<()> {
         };
 
         for episode in 1..=episodes {
-            // if let Some(ref user_rate) = anime.user_rate
-            //     && user_rate.episodes >= episode
-            // {
-            //     continue;
-            // }
-
-            let media_title = if anime.episodes == 1 {
+            let mut media_title = if anime.episodes == 1 {
                 format!("{} - Movie", anime.name)
             } else {
                 format!("{} - Episode {}", anime.name, episode)
             };
+
+            if let Some(user_rate) = anime.user_rate {
+                if user_rate.episodes >= episode {
+                    media_title.push_str(" ✓");
+                } else {
+                    match user_rate.status {
+                        UserRateStatus::Watching => media_title.push_str(" ▶"),
+                        UserRateStatus::Rewatching => media_title.push_str(" ↻"),
+                        UserRateStatus::Completed => media_title.push_str(" ✓"),
+                        _ => {}
+                    }
+                }
+            }
+
+            if target_index.is_none() && !media_title.ends_with('✓') {
+                target_index = Some(insert_index - 1);
+            }
 
             let shiki_payload = ShikiPayload {
                 anime_id: anime.id,
@@ -171,6 +195,13 @@ pub fn expand(state: &mut PluginState, url: &str, host: &str) -> Result<()> {
         .mpv_mut()
         .command(["playlist-remove", &current_index.to_string()])
         .mpv_context("failed to remove original playlist entry")?;
+
+    if let Some(target_index) = target_index {
+        state
+            .mpv_mut()
+            .command(["set", "playlist-pos", &target_index.to_string()])
+            .mpv_context("failed to set current playlist position")?;
+    }
 
     Ok(())
 }
@@ -268,7 +299,7 @@ fn mark_as_watched_osd_text(
     }
 }
 
-pub fn mark_as_watched(state: &mut PluginState, shiki_payload: &ShikiPayload) -> Result<()> {
+pub fn mark_as_watched(state: &mut PluginState, shiki_payload: ShikiPayload) -> Result<()> {
     let url = Url::from_str(&format!("https://{}", shiki_payload.host))?;
 
     let has_kawai_session = state
@@ -286,89 +317,98 @@ pub fn mark_as_watched(state: &mut PluginState, shiki_payload: &ShikiPayload) ->
         anyhow::bail!("there is no `user_id` in payload")
     };
 
-    state.runtime().block_on(tokio::spawn(async move {
-        let is_last_episode = shiki_payload.episode == shiki_payload.episodes;
-        let osd_text = if let Some(user_rate) = shiki_payload.user_rate.as_ref() {
-            let (user_rate_rewatches, user_rate_status, completed_rewatch) = if is_last_episode {
-                let completed_rewatch =
-                    user_rate.status == UserRateStatus::Rewatching || user_rate.status == UserRateStatus::Completed;
+    let mut mpv_client = state
+        .mpv_mut()
+        .create_client("kodik-mpv-client")
+        .mpv_context("failed to create mpv client")?;
 
-                let rewatches = if completed_rewatch {
-                    user_rate.rewatches + 1
+    let client = state.client().clone();
+    state.runtime().spawn(async move {
+        let result = async {
+            let is_last_episode = shiki_payload.episode == shiki_payload.episodes;
+            let osd_text = if let Some(user_rate) = shiki_payload.user_rate.as_ref() {
+                let (user_rate_rewatches, user_rate_status, completed_rewatch) = if is_last_episode {
+                    let completed_rewatch =
+                        user_rate.status == UserRateStatus::Rewatching || user_rate.status == UserRateStatus::Completed;
+
+                    let rewatches = if completed_rewatch {
+                        user_rate.rewatches + 1
+                    } else {
+                        user_rate.rewatches
+                    };
+
+                    (rewatches, UserRateStatus::Completed, completed_rewatch)
+                } else if user_rate.status == UserRateStatus::Completed {
+                    (user_rate.rewatches, UserRateStatus::Rewatching, false)
                 } else {
-                    user_rate.rewatches
+                    (user_rate.rewatches, UserRateStatus::Watching, false)
                 };
 
-                (rewatches, UserRateStatus::Completed, completed_rewatch)
-            } else if user_rate.status == UserRateStatus::Completed {
-                (user_rate.rewatches, UserRateStatus::Rewatching, false)
-            } else {
-                (user_rate.rewatches, UserRateStatus::Watching, false)
-            };
+                let shiki_api_user_rates = ShikiApiUserRates::new(
+                    shiki_payload.episode,
+                    user_rate_rewatches,
+                    user_rate_status,
+                    shiki_payload.anime_id,
+                    UserRatesTargetType::Anime,
+                    user_id,
+                );
 
-            let shiki_api_user_rates = ShikiApiUserRates::new(
-                shiki_payload.episode,
-                user_rate_rewatches,
-                user_rate_status,
-                shiki_payload.anime_id,
-                UserRatesTargetType::Anime,
-                user_id,
-            );
-
-            let _ = state.runtime().block_on(async {
-                state
-                    .client()
+                let _ = client
                     .patch_json_as_text(
                         &format!("https://{}/api/v2/user_rates/{}", shiki_payload.host, user_rate.id),
                         &shiki_api_user_rates,
                     )
-                    .await
-            })?;
+                    .await?;
 
-            mark_as_watched_osd_text(
-                shiki_payload.episode,
-                shiki_payload.episodes,
-                user_rate_status,
-                user_rate_rewatches,
-                completed_rewatch,
-            )
-        } else {
-            let user_rate_status = if is_last_episode {
-                UserRateStatus::Completed
+                mark_as_watched_osd_text(
+                    shiki_payload.episode,
+                    shiki_payload.episodes,
+                    user_rate_status,
+                    user_rate_rewatches,
+                    completed_rewatch,
+                )
             } else {
-                UserRateStatus::Watching
-            };
+                let user_rate_status = if is_last_episode {
+                    UserRateStatus::Completed
+                } else {
+                    UserRateStatus::Watching
+                };
 
-            let shiki_api_user_rates = ShikiApiUserRates::new(
-                shiki_payload.episode,
-                0,
-                user_rate_status,
-                shiki_payload.anime_id,
-                UserRatesTargetType::Anime,
-                user_id,
-            );
+                let shiki_api_user_rates = ShikiApiUserRates::new(
+                    shiki_payload.episode,
+                    0,
+                    user_rate_status,
+                    shiki_payload.anime_id,
+                    UserRatesTargetType::Anime,
+                    user_id,
+                );
 
-            let _: UserRate = state.runtime().block_on(async {
-                state
-                    .client()
-                    .post_json_as_json(
-                        &format!("https://{}/api/v2/user_rates/", shiki_payload.host),
+                let _ = client
+                    .post_json_as_text(
+                        &format!("https://{}/api/v2/user_rates", shiki_payload.host),
                         &shiki_api_user_rates,
                     )
-                    .await
-            })?;
+                    .await?;
 
-            mark_as_watched_osd_text(
-                shiki_payload.episode,
-                shiki_payload.episodes,
-                user_rate_status,
-                0,
-                false,
-            )
-        };
+                mark_as_watched_osd_text(
+                    shiki_payload.episode,
+                    shiki_payload.episodes,
+                    user_rate_status,
+                    0,
+                    false,
+                )
+            };
 
-        let _ = mpv_client::osd!(state.mpv_mut(), Duration::from_secs(8), "{osd_text}");
-    }));
+            let _ = mpv_client::osd!(mpv_client, Duration::from_secs(8), "{osd_text}");
+
+            anyhow::Ok(())
+        }
+        .await;
+
+        if let Err(err) = result {
+            log::error!("failed to mark episode as watched: {err:?}");
+        }
+    });
 
     let _ = state.mpv_mut().command(["playlist-next"]);
 
@@ -423,16 +463,4 @@ impl ShikiApiUserRatesUserRate {
             user_id,
         }
     }
-}
-
-#[derive(Debug, Serialize)]
-enum UserRatesTargetType {
-    Anime,
-    // Manga,
-    // VisualNovel,
-}
-
-#[derive(Debug, Deserialize)]
-struct ShikiApiUsersWhoami {
-    id: usize,
 }
