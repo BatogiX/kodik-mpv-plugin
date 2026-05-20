@@ -11,6 +11,7 @@ use crate::{MpvResultExt as _, shiki};
 
 const ON_LOAD_REPLY: u64 = 1;
 const ON_LOAD_PRIORITY: i32 = 50;
+const KODIK_PAYLOAD_KEY: &str = "kodik-payload";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Payload {
@@ -38,32 +39,16 @@ impl Payload {
 
 #[derive(Debug)]
 pub struct MpvFileOptions {
-    pub title: Option<String>,
     pub payload: Payload,
 }
 
 impl MpvFileOptions {
     pub fn to_mpv_options_string(&self) -> Result<String> {
-        let mut options = Vec::new();
-
-        if let Some(title) = &self.title {
-            options.push(format!("force-media-title={}", escape_mpv_option_value(title)));
-        }
-
         let payload = &self.payload;
         let encoded = payload.encode()?;
 
-        options.push(format!(
-            "script-opts-append=kodik-payload={}",
-            escape_mpv_option_value(&encoded)
-        ));
-
-        Ok(options.join(","))
+        Ok(format!("script-opts-append={KODIK_PAYLOAD_KEY}={encoded}"))
     }
-}
-
-fn escape_mpv_option_value(value: &str) -> String {
-    value.replace('\\', "\\\\").replace(',', "\\,")
 }
 
 pub fn register(state: &mut PluginState) -> Result<()> {
@@ -100,12 +85,12 @@ fn on_load(state: &mut PluginState) -> Result<()> {
                 anyhow::bail!("`script-opts` is not a map")
             };
 
-            let Some(kodik_payload) = script_opts.remove("kodik-payload") else {
+            let Some(kodik_payload) = script_opts.remove(KODIK_PAYLOAD_KEY) else {
                 return Ok(());
             };
 
             let Node::String(kodik_payload) = kodik_payload else {
-                anyhow::bail!("`kodik-payload` is not a string")
+                anyhow::bail!("`{KODIK_PAYLOAD_KEY}` is not a string")
             };
 
             let kodik_payload = Payload::decode(&kodik_payload)?;
@@ -150,12 +135,12 @@ pub fn mark_as_watched(state: &mut PluginState) -> Result<()> {
         anyhow::bail!("`script-opts` is not a map")
     };
 
-    let Some(payload) = script_opts.remove("kodik-payload") else {
-        anyhow::bail!("missing `kodik-payload` in `script-opts`")
+    let Some(payload) = script_opts.remove(KODIK_PAYLOAD_KEY) else {
+        anyhow::bail!("missing `{KODIK_PAYLOAD_KEY}` in `script-opts`")
     };
 
     let Node::String(payload) = payload else {
-        anyhow::bail!("`kodik-payload` is not a string")
+        anyhow::bail!("`{KODIK_PAYLOAD_KEY}` is not a string")
     };
 
     let payload = Payload::decode(&payload)?;

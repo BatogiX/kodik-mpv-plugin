@@ -32,8 +32,9 @@ impl PluginState<'_> {
             .cookie_provider(Arc::clone(&jar))
             .build()?;
 
-        let runtime = Builder::new_current_thread()
+        let runtime = Builder::new_multi_thread()
             .enable_all()
+            .thread_name("kodik")
             .build()
             .context("failed to create tokio runtime")?;
 
