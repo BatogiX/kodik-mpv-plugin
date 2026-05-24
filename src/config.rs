@@ -4,6 +4,7 @@ use log::LevelFilter;
 use mpv_client::{Handle, Node};
 use reqwest::{Url, cookie::Jar};
 use std::{
+    borrow::ToOwned,
     collections::HashMap,
     fs::{self, File},
     io::{BufRead as _, BufReader},
@@ -116,12 +117,6 @@ fn parse_key_value_conf(input: &str) -> Result<HashMap<String, String>> {
     Ok(map)
 }
 
-fn required<'a>(map: &'a HashMap<String, String>, key: &str) -> Result<&'a str> {
-    map.get(key)
-        .map(String::as_str)
-        .with_context(|| format!("missing required config field `{key}`"))
-}
-
 impl Config {
     pub fn load(mpv: &mut Handle) -> Result<Self> {
         let path = mpv.expand_path(CONFIG_PATH)?;
@@ -139,36 +134,22 @@ impl Config {
         let map = parse_key_value_conf(input)?;
         let script_opts = mpv.get_script_opts()?;
 
-        let quality = script_opts
-            .get("kodik-quality")
-            .and_then(|node| {
-                if let Node::String(s) = node {
-                    Some(s.as_str())
-                } else {
-                    None
-                }
-            })
-            .or_else(|| map.get("kodik-quality").map(String::as_str))
-            .map(str::parse)
-            .transpose()?
-            .unwrap_or(Quality::P720);
+        let get_opt = |key: &str| -> Option<&str> {
+            script_opts
+                .get(&format!("kodik-{key}"))
+                .and_then(|node| match node {
+                    Node::String(s) => Some(s.as_str()),
+                    _ => None,
+                })
+                .or_else(|| map.get(key).map(String::as_str))
+        };
 
-        let cookies = required(&map, "cookies")
-            .ok()
-            .map(|path| expand_tilde(path, mpv))
-            .transpose()?;
-
-        let translation_title = required(&map, "translation_title")
-            .ok()
-            .map(std::borrow::ToOwned::to_owned);
-
-        let translation_type = required(&map, "translation_type")
-            .ok()
-            .map(str::parse::<TranslationType>)
-            .transpose()?;
-
-        let log_level = required(&map, "log_level").map_or(Ok(LevelFilter::Error), str::parse)?;
-        let related_mode = required(&map, "related_mode").map_or(Ok(RelatedMode::None), str::parse)?;
+        let quality = get_opt("quality").map(str::parse).transpose()?.unwrap_or(Quality::P720);
+        let cookies = get_opt("cookies").map(|path| expand_tilde(path, mpv)).transpose()?;
+        let translation_title = get_opt("translation_title").map(ToOwned::to_owned);
+        let log_level = get_opt("log_level").map_or(Ok(LevelFilter::Error), str::parse)?;
+        let related_mode = get_opt("related_mode").map_or(Ok(RelatedMode::None), str::parse)?;
+        let translation_type = get_opt("translation_type").map(str::parse).transpose()?;
 
         Ok(Self {
             quality,
