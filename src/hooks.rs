@@ -5,27 +5,41 @@ use mpv_client::{Hook, Node};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
-use crate::shiki::ShikiPayload;
+use crate::mpv_ext::MpvExt;
+use crate::shiki::ShikiMetaData;
 use crate::state::PluginState;
 use crate::{MpvResultExt as _, shiki};
 
 const ON_LOAD_REPLY: u64 = 1;
 const ON_LOAD_PRIORITY: i32 = 50;
-const KODIK_PAYLOAD_KEY: &str = "kodik-payload";
+pub const KODIK_PAYLOAD_KEY: &str = "kodik-payload";
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum Payload {
-    Shiki(ShikiPayload),
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub enum MetaData {
+    Shiki(ShikiMetaData),
     Mal,
     Imdb,
     Kinopoisk,
     Mdl,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Payload {
+    metadata_key: String,
+    episode: usize,
+}
+
 impl Payload {
+    pub const fn new(metadata_key: String, episode: usize) -> Self {
+        Self { metadata_key, episode }
+    }
+
     pub fn encode(&self) -> Result<String> {
         let json = serde_json::to_vec(self).context("failed to serialize kodik payload")?;
-        Ok(BASE64_URL_SAFE_NO_PAD.encode(json))
+        let encoded = BASE64_URL_SAFE_NO_PAD.encode(json);
+
+        Ok(format!("script-opts-append={KODIK_PAYLOAD_KEY}={encoded}"))
     }
 
     pub fn decode(encoded: &str) -> Result<Self> {
@@ -35,19 +49,13 @@ impl Payload {
 
         serde_json::from_slice(&bytes).context("failed to deserialize kodik payload")
     }
-}
 
-#[derive(Debug)]
-pub struct MpvFileOptions {
-    pub payload: Payload,
-}
+    pub fn metadata_key(&self) -> &str {
+        &self.metadata_key
+    }
 
-impl MpvFileOptions {
-    pub fn to_mpv_options_string(&self) -> Result<String> {
-        let payload = &self.payload;
-        let encoded = payload.encode()?;
-
-        Ok(format!("script-opts-append={KODIK_PAYLOAD_KEY}={encoded}"))
+    pub const fn episode(&self) -> usize {
+        self.episode
     }
 }
 
@@ -68,38 +76,30 @@ pub fn handle_hook(state: &mut PluginState, hook: &Hook) -> Result<()> {
 }
 
 fn on_load(state: &mut PluginState) -> Result<()> {
-    let filename: String = state
-        .mpv_mut()
-        .get_property("stream-open-filename")
-        .mpv_context("failed to get stream-open-filename")?;
+    let filename = state.mpv_mut().get_stream_open_filename()?;
 
     let url = match Url::parse(&filename) {
         Ok(url) if matches!(url.scheme(), "http" | "https") => url,
         _ => {
-            let node: Node = state
-                .mpv_mut()
-                .get_property("options/script-opts")
-                .mpv_context("failed to get script-opts")?;
+            let mut script_opts = state.mpv_mut().get_script_opts()?;
 
-            let Node::Map(mut script_opts) = node else {
-                anyhow::bail!("`script-opts` is not a map")
-            };
-
-            let Some(kodik_payload) = script_opts.remove(KODIK_PAYLOAD_KEY) else {
+            let Some(node) = script_opts.remove(KODIK_PAYLOAD_KEY) else {
                 return Ok(());
             };
 
-            let Node::String(kodik_payload) = kodik_payload else {
+            let Node::String(payload_encoded) = node else {
                 anyhow::bail!("`{KODIK_PAYLOAD_KEY}` is not a string")
             };
 
-            let kodik_payload = Payload::decode(&kodik_payload)?;
-            match kodik_payload {
-                Payload::Shiki(shiki_payload) => shiki::on_load(state, &shiki_payload),
-                Payload::Mal => todo!(),
-                Payload::Imdb => todo!(),
-                Payload::Kinopoisk => todo!(),
-                Payload::Mdl => todo!(),
+            let payload = Payload::decode(&payload_encoded)?;
+
+            match payload.metadata_key.split_once('.').expect("expected host").0 {
+                "shikimori" => shiki::on_load(state, &payload),
+                "myanimelist" => todo!(),
+                "imdb" => todo!(),
+                "kinopoisk" => todo!(),
+                "mydramalist" => todo!(),
+                _ => Ok(()),
             }?;
 
             return Ok(());
@@ -116,9 +116,9 @@ fn on_load(state: &mut PluginState) -> Result<()> {
 
     match host_name {
         "shikimori" => shiki::expand(state, url.as_str(), host),
-        "myanimelist" => Ok(()),
-        "kinopoisk" => Ok(()),
-        "imdb" => Ok(()),
+        "myanimelist" => todo!(),
+        "kinopoisk" => todo!(),
+        "imdb" => todo!(),
         _ => Ok(()),
     }?;
 
@@ -126,30 +126,25 @@ fn on_load(state: &mut PluginState) -> Result<()> {
 }
 
 pub fn mark_as_watched(state: &mut PluginState) -> Result<()> {
-    let node: Node = state
-        .mpv_mut()
-        .get_property("options/script-opts")
-        .mpv_context("failed to get script-opts")?;
+    let mut script_opts = state.mpv_mut().get_script_opts()?;
 
-    let Node::Map(mut script_opts) = node else {
-        anyhow::bail!("`script-opts` is not a map")
-    };
-
-    let Some(payload) = script_opts.remove(KODIK_PAYLOAD_KEY) else {
+    let Some(node) = script_opts.remove(KODIK_PAYLOAD_KEY) else {
         anyhow::bail!("missing `{KODIK_PAYLOAD_KEY}` in `script-opts`")
     };
 
-    let Node::String(payload) = payload else {
+    let Node::String(payload_encoded) = node else {
         anyhow::bail!("`{KODIK_PAYLOAD_KEY}` is not a string")
     };
 
-    let payload = Payload::decode(&payload)?;
-    match payload {
-        Payload::Shiki(shiki_payload) => shiki::mark_as_watched(state, shiki_payload),
-        Payload::Mal => todo!(),
-        Payload::Imdb => todo!(),
-        Payload::Kinopoisk => todo!(),
-        Payload::Mdl => todo!(),
+    let payload = Payload::decode(&payload_encoded)?;
+
+    match payload.metadata_key.split_once('.').expect("expected host").0 {
+        "shikimori" => shiki::mark_as_watched(state, payload),
+        "myanimelist" => todo!(),
+        "imdb" => todo!(),
+        "kinopoisk" => todo!(),
+        "mydramalist" => todo!(),
+        _ => Ok(()),
     }?;
 
     Ok(())

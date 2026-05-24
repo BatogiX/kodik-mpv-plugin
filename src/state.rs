@@ -6,7 +6,7 @@ use mpv_client::{Handle, mpv_handle};
 use reqwest::{Client, cookie::Jar};
 use tokio::runtime::{Builder, Runtime};
 
-use crate::config::Config;
+use crate::{config::Config, hooks::MetaData};
 
 pub struct PluginState<'a> {
     mpv: &'a mut Handle,
@@ -14,6 +14,7 @@ pub struct PluginState<'a> {
     runtime: Runtime,
     config: Config,
     kodik_videos: HashMap<String, KodikApiResponse>,
+    metadata: HashMap<String, MetaData>,
     jar: Arc<Jar>,
 }
 
@@ -39,6 +40,7 @@ impl PluginState<'_> {
             .context("failed to create tokio runtime")?;
 
         let kodik_videos = HashMap::new();
+        let metadata = HashMap::new();
 
         Ok(Self {
             mpv,
@@ -46,6 +48,7 @@ impl PluginState<'_> {
             runtime,
             config,
             kodik_videos,
+            metadata,
             jar,
         })
     }
@@ -76,5 +79,13 @@ impl PluginState<'_> {
 
     pub fn jar(&self) -> &Jar {
         &self.jar
+    }
+
+    pub const fn metadata_mut(&mut self) -> &mut HashMap<String, MetaData> {
+        &mut self.metadata
+    }
+
+    pub const fn metadata(&self) -> &HashMap<String, MetaData> {
+        &self.metadata
     }
 }

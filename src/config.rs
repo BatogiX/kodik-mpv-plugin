@@ -5,14 +5,16 @@ use mpv_client::{Handle, Node};
 use reqwest::{Url, cookie::Jar};
 use std::{
     collections::HashMap,
-    env,
     fs::{self, File},
     io::{BufRead as _, BufReader},
     path::PathBuf,
     str::FromStr,
+    string::String,
 };
 
-use crate::mpv_ext::MpvResultExt;
+use crate::mpv_ext::MpvExt;
+
+const CONFIG_PATH: &str = "~~home/script-opts/kodik.conf";
 
 #[derive(Debug, Clone, Copy)]
 pub enum Quality {
@@ -78,26 +80,16 @@ fn strip_comment(line: &str) -> &str {
     line.split_once('#').map_or(line, |(before, _)| before).trim()
 }
 
-fn expand_tilde(path: &str) -> PathBuf {
-    if path == "~"
-        && let Some(home) = home_dir()
-    {
-        return home;
+fn expand_tilde(path: &str, mpv: &mut Handle) -> Result<PathBuf> {
+    if path == "~" {
+        return mpv.expand_path("~/");
     }
 
-    if let Some(rest) = path.strip_prefix("~/")
-        && let Some(home) = home_dir()
-    {
-        return home.join(rest);
+    if let Some(rest) = path.strip_prefix("~/") {
+        return Ok(mpv.expand_path("~/")?.join(rest));
     }
 
-    PathBuf::from(path)
-}
-
-fn home_dir() -> Option<PathBuf> {
-    env::var_os("HOME")
-        .or_else(|| env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
+    Ok(PathBuf::from(path))
 }
 
 fn parse_key_value_conf(input: &str) -> Result<HashMap<String, String>> {
@@ -132,34 +124,50 @@ fn required<'a>(map: &'a HashMap<String, String>, key: &str) -> Result<&'a str> 
 
 impl Config {
     pub fn load(mpv: &mut Handle) -> Result<Self> {
-        let node = mpv
-            .command_ret(["expand-path", "~~/"])
-            .mpv_context("failed to `expand-path \"~~/\"`")?;
+        let path = mpv.expand_path(CONFIG_PATH)?;
 
-        let Node::String(path) = node else {
-            anyhow::bail!("`expand-path \"~~/\"` returned non-string value");
-        };
-
-        Self::from_conf_file(PathBuf::from(path).join("script-opts").join("kodik.conf"))
+        Self::from_conf_file(path, mpv)
     }
 
-    fn from_conf_str(input: &str) -> Result<Self> {
+    fn from_conf_file(path: impl Into<PathBuf>, mpv: &mut Handle) -> Result<Self> {
+        let path = path.into();
+        let input = fs::read_to_string(&path).unwrap_or_default();
+        Self::from_conf_str(&input, mpv)
+    }
+
+    fn from_conf_str(input: &str, mpv: &mut Handle) -> Result<Self> {
         let map = parse_key_value_conf(input)?;
+        let script_opts = mpv.get_script_opts()?;
 
-        let quality = match map.get("quality") {
-            Some(value) => value.parse()?,
-            None => Quality::P720,
-        };
+        let quality = script_opts
+            .get("kodik-quality")
+            .and_then(|node| {
+                if let Node::String(s) = node {
+                    Some(s.as_str())
+                } else {
+                    None
+                }
+            })
+            .or_else(|| map.get("kodik-quality").map(String::as_str))
+            .map(str::parse)
+            .transpose()?
+            .unwrap_or(Quality::P720);
 
-        let cookies = required(&map, "cookies").ok().map(expand_tilde);
+        let cookies = required(&map, "cookies")
+            .ok()
+            .map(|path| expand_tilde(path, mpv))
+            .transpose()?;
+
         let translation_title = required(&map, "translation_title")
             .ok()
             .map(std::borrow::ToOwned::to_owned);
+
         let translation_type = required(&map, "translation_type")
             .ok()
             .map(str::parse::<TranslationType>)
             .transpose()?;
-        let log_level = required(&map, "log_level").map_or(Ok(LevelFilter::Error), str::parse::<LevelFilter>)?;
+
+        let log_level = required(&map, "log_level").map_or(Ok(LevelFilter::Error), str::parse)?;
         let related_mode = required(&map, "related_mode").map_or(Ok(RelatedMode::None), str::parse)?;
 
         Ok(Self {
@@ -170,11 +178,6 @@ impl Config {
             related_mode,
             log_level,
         })
-    }
-
-    fn from_conf_file(path: impl Into<PathBuf>) -> Result<Self> {
-        let path = path.into();
-        fs::read_to_string(path).map_or_else(|_| Self::from_conf_str(""), |input| Self::from_conf_str(&input))
     }
 
     pub const fn quality(&self) -> Quality {
