@@ -39,11 +39,12 @@ pub trait MpvExt {
     fn get_playlist_pos(&mut self) -> Result<i64>;
     fn set_playlist_pos(&mut self, pos: &str) -> Result<()>;
     fn playlist_play_index(&mut self, index: &str) -> Result<()>;
+    fn get_ytdl_format(&mut self) -> Result<String>;
 }
 
 impl MpvExt for Handle {
     fn get_script_opts(&mut self) -> Result<HashMap<String, Node>> {
-        let node: Node = self
+        let node = self
             .get_property("options/script-opts")
             .mpv_context("failed to get script-opts")?;
 
@@ -55,11 +56,8 @@ impl MpvExt for Handle {
     }
 
     fn get_stream_open_filename(&mut self) -> Result<String> {
-        let filename: String = self
-            .get_property("stream-open-filename")
-            .mpv_context("failed to get `stream-open-filename`")?;
-
-        anyhow::Ok(filename)
+        self.get_property("stream-open-filename")
+            .mpv_context("failed to get `stream-open-filename`")
     }
 
     fn set_stream_open_filename(&mut self, filename: impl Into<String>) -> Result<()> {
@@ -107,5 +105,10 @@ impl MpvExt for Handle {
     fn playlist_play_index(&mut self, index: &str) -> Result<()> {
         self.command(["playlist-play-index", index])
             .mpv_context("failed to `playlist-play-index`")
+    }
+
+    fn get_ytdl_format(&mut self) -> Result<String> {
+        self.get_property("ytdl-format")
+            .mpv_context("failed to get `ytdl-format`")
     }
 }

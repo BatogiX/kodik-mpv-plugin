@@ -5,8 +5,11 @@ use crate::{
 };
 use anyhow::{Context as _, Result};
 use kodik_utils::GET as _;
+use lazy_regex::{Lazy, Regex};
 
 use crate::{config::Quality, state::PluginState};
+
+const EXTRACT_HEIGHT_PATTERN: &Lazy<Regex> = lazy_regex::regex!(r"height<=\??(\d+)");
 
 pub fn on_load(state: &mut PluginState, payload: &Payload) -> Result<()> {
     let shiki_metadata: ShikiMetaData = {
@@ -60,8 +63,22 @@ pub fn on_load(state: &mut PluginState, payload: &Payload) -> Result<()> {
         Ok::<[String; 3], anyhow::Error>([links.p720, links.p480, links.p360])
     });
 
+    let quality = EXTRACT_HEIGHT_PATTERN
+        .captures(&state.mpv_mut().get_ytdl_format()?)
+        .and_then(|caps| caps.get(1))
+        .and_then(|m| m.as_str().parse::<i32>().ok())
+        .map_or_else(
+            || state.config().quality(),
+            |height| match height {
+                h if h >= 720 => Quality::P720,
+                480 => Quality::P480,
+                h if h <= 360 => Quality::P360,
+                _ => state.config().quality(),
+            },
+        );
+
     if let Ok(mut links) = links {
-        match state.config().quality() {
+        match quality {
             Quality::P720 => {}
             Quality::P480 => links.swap(1, 0),
             Quality::P360 => links.swap(2, 0),
