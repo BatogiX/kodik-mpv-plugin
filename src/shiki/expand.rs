@@ -6,10 +6,10 @@ use crate::mpv_ext::MpvExt;
 use crate::shiki::{COMPLETED_CHAR, REWATCHING_CHAR, WATCHING_CHAR};
 use crate::{
     hooks::{MetaData, Payload},
-    shiki::{Anime, ShikiApiUsersWhoami, ShikiMetaData},
+    shiki::{ShikiApiUsersWhoami, ShikiMetaData},
 };
 use anyhow::Result;
-use kodik_shiki::{AnimeStatus, Related, UserRate, UserRateStatus};
+use kodik_shiki::{AnimeStatus, Related, UserRateStatus};
 use kodik_utils::GET;
 use reqwest::cookie::CookieStore as _;
 use reqwest::{Client, Url};
@@ -25,7 +25,7 @@ async fn fetch_user_id(client: &Client, host: &str) -> Result<Option<usize>> {
     anyhow::Ok(user_id)
 }
 
-async fn fetch_animes(client: &Client, config: &Config, url: &str, host: &str) -> Result<Vec<Anime>> {
+async fn fetch_animes(client: &Client, config: &Config, url: &str, host: &str) -> Result<Vec<ShikiMetaData>> {
     let shiki_api_animes = kodik_shiki::fetch_shiki_api_animes(client, url).await?;
 
     let Some(franchise) = shiki_api_animes
@@ -33,13 +33,15 @@ async fn fetch_animes(client: &Client, config: &Config, url: &str, host: &str) -
         .as_ref()
         .filter(|_| config.related_mode() != RelatedMode::None)
     else {
-        return Ok(vec![Anime::new(
+        return Ok(vec![ShikiMetaData::new(
             shiki_api_animes.id,
             shiki_api_animes.name,
-            shiki_api_animes.status,
             shiki_api_animes.episodes,
             shiki_api_animes.episodes_aired,
+            shiki_api_animes.status,
             shiki_api_animes.user_rate,
+            host.to_owned(),
+            None,
         )]);
     };
 
@@ -55,20 +57,20 @@ async fn fetch_animes(client: &Client, config: &Config, url: &str, host: &str) -
 
     related.sort_by_chrono();
 
-    Ok::<Vec<Anime>, anyhow::Error>(
+    Ok::<Vec<ShikiMetaData>, anyhow::Error>(
         related
             .animes
             .into_iter()
             .map(|anime| {
-                Anime::new(
+                ShikiMetaData::new(
                     anime.id,
                     anime.name,
-                    anime.status,
                     anime.episodes,
                     anime.episodes_aired,
-                    anime
-                        .user_rate
-                        .map(|ur| UserRate::new(ur.id, ur.status, ur.episodes, ur.rewatches)),
+                    anime.status,
+                    anime.user_rate,
+                    host.to_owned(),
+                    None,
                 )
             })
             .collect(),
@@ -83,7 +85,7 @@ pub fn expand(state: &mut PluginState, url: &str, host: &str) -> Result<()> {
         .transpose()?
         .unwrap_or(false);
 
-    let (animes, user_id) = if has_kawai_session {
+    let animes = if has_kawai_session {
         let (animes, user_id) = state.runtime().block_on(async {
             tokio::join!(
                 fetch_animes(state.client(), state.config(), url, host),
@@ -91,16 +93,19 @@ pub fn expand(state: &mut PluginState, url: &str, host: &str) -> Result<()> {
             )
         });
 
-        (animes?, user_id?)
-    } else {
-        let (animes, user_id) = (
-            state
-                .runtime()
-                .block_on(fetch_animes(state.client(), state.config(), url, host))?,
-            None,
-        );
+        let (mut animes, user_id) = (animes?, user_id?);
 
-        (animes, user_id)
+        if let Some(user_id) = user_id {
+            for anime in &mut animes {
+                anime.user_id = Some(user_id);
+            }
+        }
+
+        animes
+    } else {
+        state
+            .runtime()
+            .block_on(fetch_animes(state.client(), state.config(), url, host))?
     };
 
     let current_index: i64 = state.mpv_mut().get_playlist_pos()?;
@@ -110,18 +115,8 @@ pub fn expand(state: &mut PluginState, url: &str, host: &str) -> Result<()> {
     for anime in animes {
         let key = format!("{host}/{}", anime.id);
 
-        let shiki_metadata = ShikiMetaData {
-            anime_id: anime.id,
-            user_rate: anime.user_rate,
-            episodes: anime.episodes,
-            episodes_aired: anime.episodes_aired,
-            status: anime.status,
-            host: host.to_owned(),
-            user_id,
-        };
-
         if let Entry::Vacant(vacant_entry) = state.metadata_mut().entry(key.clone()) {
-            vacant_entry.insert(MetaData::Shiki(shiki_metadata));
+            vacant_entry.insert(MetaData::Shiki(anime.clone()));
         }
 
         let episodes = if anime.status == AnimeStatus::Ongoing {

@@ -4,7 +4,7 @@ use crate::{
     shiki::ShikiMetaData,
 };
 use anyhow::{Context as _, Result};
-use kodik_utils::GET;
+use kodik_utils::GET as _;
 
 use crate::{config::Quality, state::PluginState};
 
@@ -25,7 +25,7 @@ pub fn on_load(state: &mut PluginState, payload: &Payload) -> Result<()> {
     if !state.kodik_videos_mut().contains_key(payload.metadata_key()) {
         let videos = state
             .runtime()
-            .block_on(kodik_shiki::fetch_kodik_videos(state.client(), shiki_metadata.anime_id))?;
+            .block_on(kodik_shiki::fetch_kodik_videos(state.client(), shiki_metadata.id))?;
 
         state
             .kodik_videos_mut()

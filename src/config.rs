@@ -120,17 +120,12 @@ fn parse_key_value_conf(input: &str) -> Result<HashMap<String, String>> {
 impl Config {
     pub fn load(mpv: &mut Handle) -> Result<Self> {
         let path = mpv.expand_path(CONFIG_PATH)?;
-
-        Self::from_conf_file(path, mpv)
-    }
-
-    fn from_conf_file(path: impl Into<PathBuf>, mpv: &mut Handle) -> Result<Self> {
-        let path = path.into();
         let input = fs::read_to_string(&path).unwrap_or_default();
-        Self::from_conf_str(&input, mpv)
+
+        Self::parse(&input, mpv)
     }
 
-    fn from_conf_str(input: &str, mpv: &mut Handle) -> Result<Self> {
+    fn parse(input: &str, mpv: &mut Handle) -> Result<Self> {
         let map = parse_key_value_conf(input)?;
         let script_opts = mpv.get_script_opts()?;
 
@@ -147,9 +142,9 @@ impl Config {
         let quality = get_opt("quality").map(str::parse).transpose()?.unwrap_or(Quality::P720);
         let cookies = get_opt("cookies").map(|path| expand_tilde(path, mpv)).transpose()?;
         let translation_title = get_opt("translation_title").map(ToOwned::to_owned);
+        let translation_type = get_opt("translation_type").map(str::parse).transpose()?;
         let log_level = get_opt("log_level").map_or(Ok(LevelFilter::Error), str::parse)?;
         let related_mode = get_opt("related_mode").map_or(Ok(RelatedMode::None), str::parse)?;
-        let translation_type = get_opt("translation_type").map(str::parse).transpose()?;
 
         Ok(Self {
             quality,

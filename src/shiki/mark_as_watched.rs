@@ -88,7 +88,7 @@ pub fn mark_as_watched(state: &mut PluginState, payload: Payload) -> Result<()> 
                     payload.episode(),
                     user_rate_rewatches,
                     user_rate_status,
-                    shiki_metadata.anime_id,
+                    shiki_metadata.id,
                     UserRatesTargetType::Anime,
                     user_id,
                 );
@@ -122,7 +122,7 @@ pub fn mark_as_watched(state: &mut PluginState, payload: Payload) -> Result<()> 
                     payload.episode(),
                     0,
                     user_rate_status,
-                    shiki_metadata.anime_id,
+                    shiki_metadata.id,
                     UserRatesTargetType::Anime,
                     user_id,
                 );

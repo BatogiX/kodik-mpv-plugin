@@ -13,44 +13,40 @@ pub const COMPLETED_CHAR: char = '✓';
 pub const WATCHING_CHAR: char = '▶';
 pub const REWATCHING_CHAR: char = '↻';
 
-struct Anime {
-    id: usize,
-    name: String,
-    status: AnimeStatus,
-    episodes: usize,
-    episodes_aired: usize,
-    user_rate: Option<UserRate>,
+#[derive(Debug, Clone)]
+pub struct ShikiMetaData {
+    pub id: usize,
+    pub name: String,
+    pub episodes: usize,
+    pub episodes_aired: usize,
+    pub status: AnimeStatus,
+    pub user_rate: Option<UserRate>,
+    pub host: String,
+    pub user_id: Option<usize>,
 }
 
-impl Anime {
-    const fn new(
+impl ShikiMetaData {
+    pub const fn new(
         id: usize,
         name: String,
-        status: AnimeStatus,
         episodes: usize,
         episodes_aired: usize,
+        status: AnimeStatus,
         user_rate: Option<UserRate>,
+        host: String,
+        user_id: Option<usize>,
     ) -> Self {
         Self {
             id,
             name,
-            status,
             episodes,
             episodes_aired,
+            status,
             user_rate,
+            host,
+            user_id,
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ShikiMetaData {
-    pub anime_id: usize,
-    pub episodes: usize,
-    pub episodes_aired: usize,
-    pub status: AnimeStatus,
-    pub host: String,
-    pub user_rate: Option<UserRate>,
-    pub user_id: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
