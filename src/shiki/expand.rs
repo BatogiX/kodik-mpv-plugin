@@ -11,6 +11,7 @@ use crate::{
 use anyhow::Result;
 use kodik_shiki::{AnimeStatus, Related, UserRateStatus};
 use kodik_utils::GET;
+use mpv_client::Handle;
 use reqwest::cookie::CookieStore as _;
 use reqwest::{Client, Url};
 
@@ -77,7 +78,7 @@ async fn fetch_animes(client: &Client, config: &Config, url: &str, host: &str) -
     )
 }
 
-pub fn expand(state: &mut PluginState, url: &str, host: &str) -> Result<()> {
+pub fn expand(state: &mut PluginState, mpv: &mut Handle, url: &str, host: &str) -> Result<()> {
     let has_kawai_session = state
         .jar()
         .cookies(&Url::from_str(&format!("https://{host}"))?)
@@ -108,7 +109,7 @@ pub fn expand(state: &mut PluginState, url: &str, host: &str) -> Result<()> {
             .block_on(fetch_animes(state.client(), state.config(), url, host))?
     };
 
-    let current_index: i64 = state.mpv_mut().get_playlist_pos()?;
+    let current_index: i64 = mpv.get_playlist_pos()?;
     let mut insert_index = current_index + 1;
     let mut seek_index: Option<i64> = None;
 
@@ -156,19 +157,16 @@ pub fn expand(state: &mut PluginState, url: &str, host: &str) -> Result<()> {
             }
 
             let payload = Payload::new(key.clone(), episode);
-
-            state
-                .mpv_mut()
-                .loadfile_insert_at(&media_title, &insert_index.to_string(), &payload.encode()?)?;
+            mpv.loadfile_insert_at(&media_title, &insert_index.to_string(), &payload.encode(&media_title)?)?;
 
             insert_index += 1;
         }
     }
 
-    state.mpv_mut().playlist_remove(current_index)?;
+    mpv.playlist_remove(current_index)?;
 
     if let Some(seek_index) = seek_index {
-        state.mpv_mut().set_playlist_pos(&seek_index.to_string())?;
+        mpv.set_playlist_pos(&seek_index.to_string())?;
     }
 
     Ok(())

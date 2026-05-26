@@ -2,14 +2,13 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context as _, Result};
 use kodik_shiki::KodikApiResponse;
-use mpv_client::{Handle, mpv_handle};
+use mpv_client::Handle;
 use reqwest::{Client, cookie::Jar};
 use tokio::runtime::{Builder, Runtime};
 
 use crate::{config::Config, hooks::MetaData};
 
-pub struct PluginState<'a> {
-    mpv: &'a mut Handle,
+pub struct PluginState {
     client: Client,
     runtime: Runtime,
     config: Config,
@@ -18,9 +17,8 @@ pub struct PluginState<'a> {
     jar: Arc<Jar>,
 }
 
-impl PluginState<'_> {
-    pub fn new(handle: *mut mpv_handle) -> Result<Self> {
-        let mpv = Handle::from_ptr(handle);
+impl PluginState {
+    pub fn new(mpv: &mut Handle) -> Result<Self> {
         let config = Config::load(mpv)?;
         let jar = Arc::new(config.load_cookies()?);
 
@@ -43,7 +41,6 @@ impl PluginState<'_> {
         let metadata = HashMap::new();
 
         Ok(Self {
-            mpv,
             client,
             runtime,
             config,
@@ -59,10 +56,6 @@ impl PluginState<'_> {
 
     pub const fn client(&self) -> &Client {
         &self.client
-    }
-
-    pub const fn mpv_mut(&mut self) -> &mut Handle {
-        &mut *self.mpv
     }
 
     pub const fn config(&self) -> &Config {

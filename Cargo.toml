@@ -38,6 +38,7 @@ lazy-regex.workspace = true
 kodik-utils.workspace = true
 log.workspace = true
 env_logger.workspace = true
+futures.workspace = true
 
 [features]
 bindgen = ["mpv-client/bindgen"]

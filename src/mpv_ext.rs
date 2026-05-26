@@ -40,6 +40,8 @@ pub trait MpvExt {
     fn set_playlist_pos(&mut self, pos: &str) -> Result<()>;
     fn playlist_play_index(&mut self, index: &str) -> Result<()>;
     fn get_ytdl_format(&mut self) -> Result<String>;
+    fn video_add(&mut self, url: &str, flag: &str, title: &str) -> Result<()>;
+    fn video_add_async(&mut self, url: &str, flag: &str, title: &str) -> Result<()>;
 }
 
 impl MpvExt for Handle {
@@ -110,5 +112,15 @@ impl MpvExt for Handle {
     fn get_ytdl_format(&mut self) -> Result<String> {
         self.get_property("ytdl-format")
             .mpv_context("failed to get `ytdl-format`")
+    }
+
+    fn video_add(&mut self, url: &str, flag: &str, title: &str) -> Result<()> {
+        self.command(["video-add", url, flag, title, "ru"])
+            .mpv_context("failed to `video-add`")
+    }
+
+    fn video_add_async(&mut self, url: &str, flag: &str, title: &str) -> Result<()> {
+        self.command_async(0, ["video-add", url, flag, title, "ru"])
+            .mpv_context("failed to `video-add`")
     }
 }

@@ -26,6 +26,7 @@ pub struct ShikiMetaData {
 }
 
 impl ShikiMetaData {
+    #[allow(clippy::too_many_arguments)]
     pub const fn new(
         id: usize,
         name: String,
