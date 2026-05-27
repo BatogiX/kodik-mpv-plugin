@@ -7,7 +7,7 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
 use crate::config::Quality;
-use crate::mpv_ext::{MpvExt, MpvResultExt};
+use crate::mpv_ext::MpvExt;
 use crate::shiki;
 use crate::shiki::ShikiMetaData;
 use crate::state::PluginState;
@@ -68,17 +68,10 @@ impl Payload {
 }
 
 pub fn register(mpv: &mut Handle) -> Result<()> {
-    mpv.hook_add(ON_LOAD_REPLY, "on_load", ON_LOAD_PRIORITY)
-        .mpv_context("failed to add on_load hook")?;
-
-    mpv.hook_add(ON_PRELOADED_REPLY, "on_preloaded", ON_PRELOADED_PRIORITY)
-        .mpv_context("failed to add on_preloaded hook")?;
-
-    mpv.observe_property::<i64>(OBSERVE_VID_REPLY, "current-tracks/video/id")
-        .mpv_context("failed to observe property `current-tracks/video/id`")?;
-
-    mpv.observe_property::<String>(OBSERVE_YTDL_FORMAT_REPLY, "ytdl-format")
-        .mpv_context("failed to observe property `ytdl-format`")?;
+    mpv.hook_add_ext(ON_LOAD_REPLY, "on_load", ON_LOAD_PRIORITY)?;
+    mpv.hook_add_ext(ON_PRELOADED_REPLY, "on_preloaded", ON_PRELOADED_PRIORITY)?;
+    mpv.observe_property_ext::<i64>(OBSERVE_VID_REPLY, "current-tracks/video/id")?;
+    mpv.observe_property_ext::<String>(OBSERVE_YTDL_FORMAT_REPLY, "ytdl-format")?;
 
     Ok(())
 }
@@ -199,7 +192,7 @@ fn observe_vid_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
         return Ok(());
     };
 
-    let Ok(current_translation_title) = mpv.get_property::<String>("current-tracks/video/title") else {
+    let Ok(current_translation_title) = mpv.get_current_tracks_video_title() else {
         return Ok(());
     };
 
@@ -207,15 +200,9 @@ fn observe_vid_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
         .config_mut()
         .set_translation_title(Some(current_translation_title));
 
-    let time_pos: f64 = mpv
-        .get_property("time-pos")
-        .mpv_context("failed to `get-property time-pos`")?;
-
-    mpv.set_property("file-local-options/start", time_pos.to_string())
-        .with_mpv_context(|| format!("failed to `set-property file-local-options/start {time_pos}`"))?;
-
-    mpv.command(["playlist-play-index", "current", "yes"])
-        .mpv_context("failed to `playlist-play-index current yes`")?;
+    let time_pos = mpv.get_time_pos()?;
+    mpv.set_file_local_options_start(time_pos)?;
+    mpv.reload_current_file()?;
 
     Ok(())
 }

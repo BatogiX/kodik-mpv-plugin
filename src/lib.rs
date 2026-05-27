@@ -67,7 +67,7 @@ extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
                     log::error!("observe `{}` failed: {err:?}", property.name());
                 }
             }
-            event => log::warn!("got event: {event}"),
+            _ => {}
         }
     }
 

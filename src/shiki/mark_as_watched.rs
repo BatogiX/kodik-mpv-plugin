@@ -137,7 +137,7 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: Paylo
             };
 
             shiki_metadata.user_rate = Some(user_rate);
-            update_playlist_watched_titles(mpv, &user_rate, shiki_metadata, current_pos, payload.metadata_key())?;
+            update_playlist_watched_titles(mpv, shiki_metadata, current_pos, payload.metadata_key())?;
             let _ = mpv_client::osd!(mpv, Duration::from_secs(8), "{osd_text}");
 
             anyhow::Ok(())
@@ -176,24 +176,29 @@ fn mark_as_watched_osd_text(
 
 fn update_playlist_watched_titles(
     mpv: &mut Handle,
-    user_rate: &UserRate,
     shiki_metadata: &ShikiMetaData,
     current_pos: i64,
     metadata_key: &str,
 ) -> Result<()> {
+    let user_rate = &shiki_metadata.user_rate.context("user rate must exist after request")?;
+
+    let status_marker = if user_rate.status == UserRateStatus::Watching {
+        WATCHING_CHAR
+    } else {
+        REWATCHING_CHAR
+    };
+
     let episodes = if shiki_metadata.status == AnimeStatus::Ongoing {
         shiki_metadata.episodes_aired
     } else {
         shiki_metadata.episodes
     };
 
-    for (index, episode) in (0..=current_pos).rev().zip((1..=user_rate.episodes).rev()) {
-        let media_title = mpv
-            .get_property::<String>(&format!("playlist/{index}/filename"))
-            .with_mpv_context(|| format!("failed to get `playlist/{index}/filename`"))?;
+    let mut update_title = |index: i64, episode, status_marker| -> Result<()> {
+        let media_title = mpv.get_playlist_filename_by_index(index)?;
 
-        if media_title.ends_with(COMPLETED_CHAR) {
-            continue;
+        if media_title.ends_with(status_marker) {
+            return Ok(());
         }
 
         let media_title = {
@@ -201,46 +206,25 @@ fn update_playlist_watched_titles(
             let base = &media_title[..media_title.len() - last_char.len_utf8()];
 
             if last_char.is_ascii_digit() {
-                format!("{base}{last_char} {COMPLETED_CHAR}")
+                format!("{base}{last_char} {status_marker}")
             } else {
-                format!("{base}{COMPLETED_CHAR}")
+                format!("{base}{status_marker}")
             }
         };
 
         let payload = Payload::new(metadata_key.to_owned(), episode);
         mpv.loadfile_insert_at(&media_title, &index.to_string(), &payload.encode()?)?;
         mpv.playlist_remove(index + 1)?;
-    }
 
-    let user_rate_char_rest = if user_rate.status == UserRateStatus::Watching {
-        WATCHING_CHAR
-    } else {
-        REWATCHING_CHAR
+        Ok(())
     };
 
+    for (index, episode) in (0..=current_pos).rev().zip((1..=user_rate.episodes).rev()) {
+        update_title(index, episode, COMPLETED_CHAR)?;
+    }
+
     for (index, episode) in (current_pos + 1..=i64::MAX).zip(user_rate.episodes + 1..=episodes) {
-        let media_title = mpv
-            .get_property::<String>(&format!("playlist/{index}/filename"))
-            .with_mpv_context(|| format!("failed to get `playlist/{index}/filename`"))?;
-
-        if media_title.ends_with(user_rate_char_rest) {
-            continue;
-        }
-
-        let media_title = {
-            let last_char = media_title.chars().next_back().unwrap();
-            let base = &media_title[..media_title.len() - last_char.len_utf8()];
-
-            if last_char.is_ascii_digit() {
-                format!("{base}{last_char} {user_rate_char_rest}")
-            } else {
-                format!("{base}{user_rate_char_rest}")
-            }
-        };
-
-        let payload = Payload::new(metadata_key.to_owned(), episode);
-        mpv.loadfile_insert_at(&media_title, &index.to_string(), &payload.encode()?)?;
-        mpv.playlist_remove(index + 1)?;
+        update_title(index, episode, status_marker)?;
     }
 
     Ok(())
