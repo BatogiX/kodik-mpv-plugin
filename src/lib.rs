@@ -5,14 +5,13 @@ use mpv_client::{Event, Handle, mpv_handle};
 
 mod cache;
 mod config;
-mod hooks;
+mod events;
 mod logger;
 mod mpv_ext;
 mod shiki;
 mod state;
 
 use crate::cache::Cache;
-use crate::mpv_ext::MpvResultExt;
 use crate::state::PluginState;
 
 #[allow(unsafe_code)]
@@ -39,7 +38,7 @@ extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
         }
     };
 
-    if let Err(err) = hooks::register(mpv) {
+    if let Err(err) = events::register(mpv) {
         log::error!("failed to register hooks: {err:?}");
         return 1;
     }
@@ -48,7 +47,7 @@ extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
         match mpv.wait_event(-1.) {
             Event::Shutdown => break,
             Event::Hook(reply, hook) => {
-                if let Err(err) = hooks::handle_hook(&mut state, mpv, reply) {
+                if let Err(err) = events::handle_event(&mut state, mpv, reply) {
                     log::error!("hook `{}` failed: {err:?}", hook.name());
                 }
 
@@ -58,20 +57,14 @@ extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
             }
             Event::ClientMessage(data) => {
                 if let ["key-binding", "watched", "u--", ..] = data.args().as_slice()
-                    && let Err(err) = hooks::mark_as_watched(&mut state, mpv)
+                    && let Err(err) = events::mark_as_watched(&mut state, mpv)
                 {
                     log::error!("failed to mark as watched: {err:?}");
                 }
             }
             Event::PropertyChange(reply, property) => {
-                if let Err(err) = hooks::handle_observe(&state, mpv, reply, &property) {
+                if let Err(err) = events::handle_event(&mut state, mpv, reply) {
                     log::error!("observe `{}` failed: {err:?}", property.name());
-                }
-            }
-            Event::FileLoaded => {
-                log::warn!("got event: {}", Event::FileLoaded);
-                if let Err(err) = hooks::file_loaded(&state, mpv) {
-                    log::error!("file loaded failed: {err:?}");
                 }
             }
             event => log::warn!("got event: {event}"),

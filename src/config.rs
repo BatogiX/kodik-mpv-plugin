@@ -225,4 +225,12 @@ impl Config {
     pub const fn log_level(&self) -> LevelFilter {
         self.log_level
     }
+
+    pub fn set_translation_title(&mut self, translation_title: Option<String>) {
+        self.translation_title = translation_title;
+    }
+
+    pub const fn set_quality(&mut self, quality: Quality) {
+        self.quality = quality;
+    }
 }

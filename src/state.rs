@@ -6,7 +6,7 @@ use mpv_client::Handle;
 use reqwest::{Client, cookie::Jar};
 use tokio::runtime::{Builder, Runtime};
 
-use crate::{config::Config, hooks::MetaData};
+use crate::{config::Config, events::MetaData};
 
 pub struct PluginState {
     client: Client,
@@ -80,5 +80,9 @@ impl PluginState {
 
     pub const fn metadata(&self) -> &HashMap<String, MetaData> {
         &self.metadata
+    }
+
+    pub const fn config_mut(&mut self) -> &mut Config {
+        &mut self.config
     }
 }

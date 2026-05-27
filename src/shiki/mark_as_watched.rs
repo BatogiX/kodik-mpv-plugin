@@ -3,13 +3,13 @@ use std::{fmt::Display, str::FromStr, time::Duration};
 use crate::mpv_ext::{MpvExt, MpvResultExt};
 use crate::shiki::{COMPLETED_CHAR, REWATCHING_CHAR, WATCHING_CHAR};
 use crate::{
-    hooks::{MetaData, Payload},
+    events::{MetaData, Payload},
     shiki::{ShikiApiUserRates, ShikiMetaData, UserRatesTargetType},
 };
 use anyhow::{Context, Result};
 use kodik_shiki::{AnimeStatus, UserRate, UserRateStatus};
 use kodik_utils::{PATCH as _, POST};
-use mpv_client::{Handle, Node};
+use mpv_client::Handle;
 use reqwest::{Url, cookie::CookieStore};
 
 use crate::state::PluginState;
@@ -202,17 +202,13 @@ fn update_playlist_watched_titles(
     };
 
     for (index, episode) in (0..=current_pos).rev().zip((1..=user_rate.episodes).rev()) {
-        let media_title = if index == current_pos {
-            mpv.get_property::<String>(&format!("playlist/{index}/title"))
-                .with_mpv_context(|| format!("failed to get `playlist/{index}/title`"))
-        } else {
-            mpv.get_property::<String>(&format!("playlist/{index}/filename"))
-                .with_mpv_context(|| format!("failed to get `playlist/{index}/filename`"))
-        }?;
+        let media_title = mpv
+            .get_property::<String>(&format!("playlist/{index}/filename"))
+            .with_mpv_context(|| format!("failed to get `playlist/{index}/filename`"))?;
 
-        // if filename.ends_with(COMPLETED_CHAR) {
-        //     continue;
-        // } else
+        if media_title.ends_with(COMPLETED_CHAR) {
+            continue;
+        }
 
         let media_title = {
             let last_char = media_title.chars().next_back().unwrap();
@@ -226,8 +222,7 @@ fn update_playlist_watched_titles(
         };
 
         let payload = Payload::new(metadata_key.to_owned(), episode);
-
-        mpv.loadfile_insert_at(&media_title, &index.to_string(), &payload.encode(&media_title)?)?;
+        mpv.loadfile_insert_at(&media_title, &index.to_string(), &payload.encode()?)?;
         mpv.playlist_remove(index + 1)?;
     }
 
@@ -242,8 +237,9 @@ fn update_playlist_watched_titles(
             .get_property::<String>(&format!("playlist/{index}/filename"))
             .with_mpv_context(|| format!("failed to get `playlist/{index}/filename`"))?;
 
-        // let media_title = if filename.ends_with(user_rate_char_rest) {
-        //     continue;
+        if media_title.ends_with(user_rate_char_rest) {
+            continue;
+        }
 
         let media_title = {
             let last_char = media_title.chars().next_back().unwrap();
@@ -257,7 +253,7 @@ fn update_playlist_watched_titles(
         };
 
         let payload = Payload::new(metadata_key.to_owned(), episode);
-        mpv.loadfile_insert_at(&media_title, &index.to_string(), &payload.encode(&media_title)?)?;
+        mpv.loadfile_insert_at(&media_title, &index.to_string(), &payload.encode()?)?;
         mpv.playlist_remove(index + 1)?;
     }
 

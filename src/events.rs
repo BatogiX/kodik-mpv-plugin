@@ -1,20 +1,20 @@
 use anyhow::{Context as _, Result};
 use base64::Engine as _;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
-use kodik_utils::GET as _;
 use lazy_regex::{Lazy, Regex};
-use mpv_client::{Handle, Node, Property};
+use mpv_client::{Handle, Node};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
 use crate::config::Quality;
-use crate::mpv_ext::MpvExt;
+use crate::mpv_ext::{MpvExt, MpvResultExt};
+use crate::shiki;
 use crate::shiki::ShikiMetaData;
 use crate::state::PluginState;
-use crate::{MpvResultExt as _, shiki};
 
-pub const ON_LOAD_REPLY: u64 = 1;
-pub const OBSERVE_VID_REPLY: u64 = 2;
+pub const ON_LOAD_REPLY: u64 = 0;
+pub const OBSERVE_VID_REPLY: u64 = 1;
+pub const OBSERVE_YTDL_FORMAT_REPLY: u64 = 2;
 const ON_LOAD_PRIORITY: i32 = 50;
 pub const KODIK_PAYLOAD_KEY: &str = "kodik-payload";
 pub const EXTRACT_HEIGHT_PATTERN: &Lazy<Regex> = lazy_regex::regex!(r"height<=\??(\d+)");
@@ -42,13 +42,11 @@ impl Payload {
         Self { metadata_key, episode }
     }
 
-    pub fn encode(&self, media_title: &str) -> Result<String> {
+    pub fn encode(&self) -> Result<String> {
         let json = serde_json::to_vec(self).context("failed to serialize kodik payload")?;
         let encoded = BASE64_URL_SAFE_NO_PAD.encode(json);
 
-        Ok(format!(
-            "force-media-title={media_title},script-opts-append={KODIK_PAYLOAD_KEY}={encoded}"
-        ))
+        Ok(format!("script-opts-append={KODIK_PAYLOAD_KEY}={encoded}"))
     }
 
     pub fn decode(encoded: &str) -> Result<Self> {
@@ -75,12 +73,17 @@ pub fn register(mpv: &mut Handle) -> Result<()> {
     mpv.observe_property::<i64>(OBSERVE_VID_REPLY, "current-tracks/video/id")
         .mpv_context("failed to observe property `current-tracks/video/id`")?;
 
+    mpv.observe_property::<String>(OBSERVE_YTDL_FORMAT_REPLY, "ytdl-format")
+        .mpv_context("failed to observe property `ytdl-format`")?;
+
     Ok(())
 }
 
-pub fn handle_hook(state: &mut PluginState, mpv: &mut Handle, reply: u64) -> Result<()> {
+pub fn handle_event(state: &mut PluginState, mpv: &mut Handle, reply: u64) -> Result<()> {
     match reply {
         ON_LOAD_REPLY => on_load(state, mpv),
+        OBSERVE_VID_REPLY => observe_vid_reply(state, mpv),
+        OBSERVE_YTDL_FORMAT_REPLY => observe_ytdl_format_reply(state, mpv),
         _ => Ok(()),
     }
 }
@@ -103,7 +106,7 @@ fn on_load(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
 
             let payload = Payload::decode(&payload_encoded)?;
 
-            match payload.metadata_key.split_once('.').expect("expected host").0 {
+            match payload.metadata_key.split_once('.').context("expected host")?.0 {
                 "shikimori" => shiki::on_load(state, mpv, &payload),
                 "myanimelist" => todo!(),
                 "imdb" => todo!(),
@@ -148,7 +151,7 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle) -> Result<()> 
 
     let payload = Payload::decode(&payload_encoded)?;
 
-    match payload.metadata_key.split_once('.').expect("expected host").0 {
+    match payload.metadata_key.split_once('.').context("expected host")?.0 {
         "shikimori" => shiki::mark_as_watched(state, mpv, payload),
         "myanimelist" => todo!(),
         "imdb" => todo!(),
@@ -160,69 +163,74 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle) -> Result<()> 
     Ok(())
 }
 
-pub fn handle_observe(state: &PluginState, mpv: &mut Handle, reply: u64, property: &Property) -> Result<()> {
-    match reply {
-        OBSERVE_VID_REPLY => observe_vid_reply(state, mpv, property),
-        _ => Ok(()),
-    }
-}
-
-fn observe_vid_reply(state: &PluginState, mpv: &mut Handle, _property: &Property) -> Result<()> {
-    let current_pos: i64 = mpv.get_playlist_pos()?;
-
-    if !is_fake_kodik_vid(mpv) {
-        return Ok(());
-    }
-
-    let mut script_opts = mpv.get_script_opts()?;
-
-    let Some(node) = script_opts.remove(KODIK_PAYLOAD_KEY) else {
+fn observe_vid_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
+    let Some(_) = mpv.get_script_opts()?.remove(KODIK_PAYLOAD_KEY) else {
         return Ok(());
     };
 
-    let Node::String(payload_encoded) = node else {
-        anyhow::bail!("`{KODIK_PAYLOAD_KEY}` is not a string")
-    };
+    let current_vid = mpv
+        .get_property::<i64>("vid")
+        .mpv_context("failed to `get-property vid`")?;
 
-    let payload = Payload::decode(&payload_encoded)?;
+    let original_vid = get_original_vid(mpv)?;
 
-    let kodik_videos = state
-        .kodik_videos()
-        .get(payload.metadata_key())
-        .context("kodik videos should exist after on_load hook")?;
+    if current_vid == original_vid {
+        return Ok(());
+    }
+
+    if original_vid == -1 {
+        return Ok(());
+    }
 
     let current_translation_title = mpv
         .get_property::<String>("current-tracks/video/title")
         .mpv_context("failed to get `current-tracks/video/title`")?;
 
-    let result = match kodik_videos
-        .results
-        .iter()
-        .find(|result| result.translation.title == current_translation_title)
-        .context("no results found")
-    {
-        Ok(result) => result,
-        Err(err) => {
-            mpv.playlist_next_weak()?;
-            return Err(err);
+    state
+        .config_mut()
+        .set_translation_title(Some(current_translation_title));
+
+    let time_pos: f64 = mpv
+        .get_property("time-pos")
+        .mpv_context("failed to `get-property time-pos`")?;
+
+    mpv.set_property("file-local-options/start", time_pos.to_string())
+        .with_mpv_context(|| format!("failed to `set-property file-local-options/start {time_pos}`"))?;
+
+    mpv.set_property("vid", original_vid)
+        .with_mpv_context(|| format!("failed to `set-property vid {original_vid}`"))?;
+
+    mpv.command(["playlist-play-index", "current", "yes"])
+        .with_mpv_context(|| "failed to reload current file".to_string())?;
+
+    Ok(())
+}
+
+fn get_original_vid(mpv: &mut Handle) -> Result<i64> {
+    let count: i64 = mpv
+        .get_property("track-list/count")
+        .mpv_context("failed to `get-property track-list/count`")?;
+
+    for i in 0..count {
+        let external = mpv
+            .get_property::<bool>(format!("track-list/{i}/external"))
+            .unwrap_or(false);
+
+        if external {
+            continue;
         }
-    };
 
-    let Some(indirect_link) = result.seasons.as_ref().map_or(Some(&result.link), |seasons| {
-        seasons
-            .iter()
-            .last()
-            .and_then(|(_, season)| season.episodes.get(&payload.episode()))
-    }) else {
-        mpv.playlist_next_weak()?;
-        anyhow::bail!("episode not found");
-    };
+        let id: i64 = mpv
+            .get_property(format!("track-list/{i}/id"))
+            .with_mpv_context(|| format!("failed to `get-property track-list/{i}/id`"))?;
 
-    let mut links = state.runtime().block_on(async {
-        let links = kodik_parser::parse(state.client(), format!("https:{indirect_link}").as_str()).await?;
-        Ok::<[String; 3], anyhow::Error>([links.p720, links.p480, links.p360])
-    })?;
+        return Ok(id);
+    }
 
+    Ok(-1)
+}
+
+fn observe_ytdl_format_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
     let quality = EXTRACT_HEIGHT_PATTERN
         .captures(&mpv.get_ytdl_format()?)
         .and_then(|caps| caps.get(1))
@@ -237,87 +245,7 @@ fn observe_vid_reply(state: &PluginState, mpv: &mut Handle, _property: &Property
             },
         );
 
-    match quality {
-        Quality::P720 => {}
-        Quality::P480 => links.swap(1, 0),
-        Quality::P360 => links.swap(2, 0),
-    }
-
-    let mut direct_link = None;
-    for link in links {
-        let text = state
-            .runtime()
-            .block_on(async { state.client().fetch_as_text(&link).await })?;
-
-        if text.is_empty() {
-            continue;
-        }
-
-        direct_link = Some(link);
-        break;
-    }
-
-    let Some(direct_link) = direct_link else {
-        anyhow::bail!("invalid links")
-    };
-
-    let media_title = mpv
-        .get_property::<String>("media-title")
-        .mpv_context("failed to get `media-title`")?;
-
-    mpv.loadfile_insert_at(
-        direct_link.as_str(),
-        &current_pos.to_string(),
-        &payload.encode(&media_title)?,
-    )?;
-
-    mpv.playlist_remove(current_pos + 1)?;
-    mpv.set_playlist_pos(&current_pos.to_string())?;
-
-    Ok(())
-}
-
-fn is_fake_kodik_vid(mpv: &mut Handle) -> bool {
-    let codec = mpv.get_property::<String>("current-tracks/video/codec").ok();
-    let w = mpv
-        .get_property::<i64>("current-tracks/video/demux-w")
-        .unwrap_or_default();
-    let h = mpv
-        .get_property::<i64>("current-tracks/video/demux-h")
-        .unwrap_or_default();
-    let external = mpv
-        .get_property::<bool>("current-tracks/video/external")
-        .unwrap_or(false);
-
-    external && codec.as_deref() == Some("vp9") && w == 16 && h == 16
-}
-
-pub fn file_loaded(state: &PluginState, mpv: &mut Handle) -> Result<()> {
-    if is_fake_kodik_vid(mpv) {
-        return Ok(());
-    }
-
-    let mut script_opts = mpv.get_script_opts()?;
-
-    let Some(node) = script_opts.remove(KODIK_PAYLOAD_KEY) else {
-        return Ok(());
-    };
-
-    let Node::String(payload_encoded) = node else {
-        anyhow::bail!("`{KODIK_PAYLOAD_KEY}` is not a string")
-    };
-
-    let payload = Payload::decode(&payload_encoded)?;
-
-    let kodik_videos = state
-        .kodik_videos()
-        .get(payload.metadata_key())
-        .context("kodik videos should exist after on_load hook")?;
-
-    for result in &kodik_videos.results {
-        let title = &result.translation.title;
-        mpv.video_add(LAZY_PLACEHOLDER_WEBM_B64, "auto", title)?;
-    }
+    state.config_mut().set_quality(quality);
 
     Ok(())
 }

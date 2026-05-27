@@ -5,7 +5,7 @@ use crate::config::Config;
 use crate::mpv_ext::MpvExt;
 use crate::shiki::{COMPLETED_CHAR, REWATCHING_CHAR, WATCHING_CHAR};
 use crate::{
-    hooks::{MetaData, Payload},
+    events::{MetaData, Payload},
     shiki::{ShikiApiUsersWhoami, ShikiMetaData},
 };
 use anyhow::Result;
@@ -157,7 +157,7 @@ pub fn expand(state: &mut PluginState, mpv: &mut Handle, url: &str, host: &str) 
             }
 
             let payload = Payload::new(key.clone(), episode);
-            mpv.loadfile_insert_at(&media_title, &insert_index.to_string(), &payload.encode(&media_title)?)?;
+            mpv.loadfile_insert_at(&media_title, &insert_index.to_string(), &payload.encode()?)?;
 
             insert_index += 1;
         }
