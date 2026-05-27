@@ -50,18 +50,8 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: Paylo
 
     handle.block_on(async {
         let result = async {
-            let shiki_metadata = {
-                let metadata = state
-                    .metadata_mut()
-                    .get(payload.metadata_key())
-                    .context("must be inserted in `expand`")?
-                    .to_owned();
-
-                let MetaData::Shiki(shiki_metadata) = metadata else {
-                    anyhow::bail!("shiki metadata expected")
-                };
-
-                shiki_metadata
+            let Some(MetaData::Shiki(shiki_metadata)) = state.metadata().get(payload.metadata_key()) else {
+                anyhow::bail!("must be inserted in `expand`");
             };
 
             let is_last_episode = payload.episode() == shiki_metadata.episodes;
@@ -142,16 +132,12 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: Paylo
                 )
             };
 
-            if let MetaData::Shiki(shiki_metadata) = state.metadata_mut().get_mut(payload.metadata_key()).unwrap()
-                && let Some(ref mut sm_ur) = shiki_metadata.user_rate
-            {
-                sm_ur.episodes = user_rate.episodes;
-                sm_ur.rewatches = user_rate.rewatches;
-                sm_ur.status = user_rate.status;
-            }
+            let Some(MetaData::Shiki(shiki_metadata)) = state.metadata_mut().get_mut(payload.metadata_key()) else {
+                anyhow::bail!("must be inserted in `expand`");
+            };
 
-            update_playlist_watched_titles(mpv, &user_rate, &shiki_metadata, current_pos, payload.metadata_key())?;
-
+            shiki_metadata.user_rate = Some(user_rate);
+            update_playlist_watched_titles(mpv, &user_rate, shiki_metadata, current_pos, payload.metadata_key())?;
             let _ = mpv_client::osd!(mpv, Duration::from_secs(8), "{osd_text}");
 
             anyhow::Ok(())

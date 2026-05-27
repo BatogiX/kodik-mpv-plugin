@@ -13,13 +13,14 @@ use crate::shiki::ShikiMetaData;
 use crate::state::PluginState;
 
 pub const ON_LOAD_REPLY: u64 = 0;
-pub const OBSERVE_VID_REPLY: u64 = 1;
-pub const OBSERVE_YTDL_FORMAT_REPLY: u64 = 2;
+pub const ON_PRELOADED_REPLY: u64 = 1;
+pub const OBSERVE_VID_REPLY: u64 = 2;
+pub const OBSERVE_YTDL_FORMAT_REPLY: u64 = 3;
 const ON_LOAD_PRIORITY: i32 = 50;
+const ON_PRELOADED_PRIORITY: i32 = 50;
 pub const KODIK_PAYLOAD_KEY: &str = "kodik-payload";
 pub const EXTRACT_HEIGHT_PATTERN: &Lazy<Regex> = lazy_regex::regex!(r"height<=\??(\d+)");
-pub const LAZY_PLACEHOLDER_WEBM_B64: &str = "data://video/webm;base64,\
-GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAIGEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEjTbuMU6uEHFO7a1OsggHw7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuNy4xMDBXQYxMYXZmNjEuNy4xMDBEiYhAj0AAAAAAABZUrmvIrgEAAAAAAAA/14EBc8WIHkCBGSwrtlWcgQAitZyDdW5kiIEAhoVWX1ZQOYOBASPjg4Q7msoA4JCwgRC6gRCagQJVsIRVuYEBElTDZ0B/c3OfY8CAZ8iZRaOHRU5DT0RFUkSHjExhdmY2MS43LjEwMHNz2mPAi2PFiB5AgRksK7ZVZ8ilRaOHRU5DT0RFUkSHmExhdmM2MS4xOS4xMDEgbGlidnB4LXZwOWfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDEuMDAwMDAwMDAwAB9DtnXD54EAo76BAACAgkmDQgAA8AD2BjgkHBhCAAAgQAAim///pRP7gpTejxVKt20n/VT9Ge2UUtNx0mzI/qb3ZUy8JgyAABxTu2uRu4+zgQC3iveBAfGCAajwgQM=";
+pub const VIDEO_TRACK_PLACEHOLDER: &str = "av://lavfi:color=c=black@0.0:s=1280x720:r=1";
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -70,6 +71,9 @@ pub fn register(mpv: &mut Handle) -> Result<()> {
     mpv.hook_add(ON_LOAD_REPLY, "on_load", ON_LOAD_PRIORITY)
         .mpv_context("failed to add on_load hook")?;
 
+    mpv.hook_add(ON_PRELOADED_REPLY, "on_preloaded", ON_PRELOADED_PRIORITY)
+        .mpv_context("failed to add on_preloaded hook")?;
+
     mpv.observe_property::<i64>(OBSERVE_VID_REPLY, "current-tracks/video/id")
         .mpv_context("failed to observe property `current-tracks/video/id`")?;
 
@@ -82,6 +86,7 @@ pub fn register(mpv: &mut Handle) -> Result<()> {
 pub fn handle_event(state: &mut PluginState, mpv: &mut Handle, reply: u64) -> Result<()> {
     match reply {
         ON_LOAD_REPLY => on_load(state, mpv),
+        ON_PRELOADED_REPLY => on_preloaded(state, mpv),
         OBSERVE_VID_REPLY => observe_vid_reply(state, mpv),
         OBSERVE_YTDL_FORMAT_REPLY => observe_ytdl_format_reply(state, mpv),
         _ => Ok(()),
@@ -163,28 +168,40 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle) -> Result<()> 
     Ok(())
 }
 
-fn observe_vid_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
-    let Some(_) = mpv.get_script_opts()?.remove(KODIK_PAYLOAD_KEY) else {
+fn on_preloaded(state: &PluginState, mpv: &mut Handle) -> Result<()> {
+    let mut script_opts = mpv.get_script_opts()?;
+
+    let Some(node) = script_opts.remove(KODIK_PAYLOAD_KEY) else {
         return Ok(());
     };
 
-    let current_vid = mpv
-        .get_property::<i64>("vid")
-        .mpv_context("failed to `get-property vid`")?;
+    let Node::String(payload_encoded) = node else {
+        anyhow::bail!("`{KODIK_PAYLOAD_KEY}` is not a string")
+    };
 
-    let original_vid = get_original_vid(mpv)?;
+    let payload = Payload::decode(&payload_encoded)?;
 
-    if current_vid == original_vid {
-        return Ok(());
+    let kodik_videos = state
+        .kodik_videos()
+        .get(payload.metadata_key())
+        .context("kodik videos should exist after on-load hook")?;
+
+    for result in &kodik_videos.results {
+        let title = &result.translation.title;
+        mpv.video_add(VIDEO_TRACK_PLACEHOLDER, "auto", title)?;
     }
 
-    if original_vid == -1 {
-        return Ok(());
-    }
+    Ok(())
+}
 
-    let current_translation_title = mpv
-        .get_property::<String>("current-tracks/video/title")
-        .mpv_context("failed to get `current-tracks/video/title`")?;
+fn observe_vid_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
+    let Some(_) = mpv.get_script_opts()?.get(KODIK_PAYLOAD_KEY) else {
+        return Ok(());
+    };
+
+    let Ok(current_translation_title) = mpv.get_property::<String>("current-tracks/video/title") else {
+        return Ok(());
+    };
 
     state
         .config_mut()
@@ -197,37 +214,10 @@ fn observe_vid_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
     mpv.set_property("file-local-options/start", time_pos.to_string())
         .with_mpv_context(|| format!("failed to `set-property file-local-options/start {time_pos}`"))?;
 
-    mpv.set_property("vid", original_vid)
-        .with_mpv_context(|| format!("failed to `set-property vid {original_vid}`"))?;
-
     mpv.command(["playlist-play-index", "current", "yes"])
-        .with_mpv_context(|| "failed to reload current file".to_string())?;
+        .mpv_context("failed to `playlist-play-index current yes`")?;
 
     Ok(())
-}
-
-fn get_original_vid(mpv: &mut Handle) -> Result<i64> {
-    let count: i64 = mpv
-        .get_property("track-list/count")
-        .mpv_context("failed to `get-property track-list/count`")?;
-
-    for i in 0..count {
-        let external = mpv
-            .get_property::<bool>(format!("track-list/{i}/external"))
-            .unwrap_or(false);
-
-        if external {
-            continue;
-        }
-
-        let id: i64 = mpv
-            .get_property(format!("track-list/{i}/id"))
-            .with_mpv_context(|| format!("failed to `get-property track-list/{i}/id`"))?;
-
-        return Ok(id);
-    }
-
-    Ok(-1)
 }
 
 fn observe_ytdl_format_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {

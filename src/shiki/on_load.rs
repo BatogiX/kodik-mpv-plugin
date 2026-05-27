@@ -1,6 +1,6 @@
 use crate::{
     config::Quality,
-    events::{LAZY_PLACEHOLDER_WEBM_B64, MetaData, Payload},
+    events::{MetaData, Payload},
     mpv_ext::MpvExt,
 };
 use anyhow::{Context as _, Result};
@@ -81,11 +81,6 @@ pub fn on_load(state: &mut PluginState, mpv: &mut Handle, payload: &Payload) -> 
     };
 
     mpv.set_stream_open_filename(direct_link)?;
-
-    for result in &kodik_videos.results {
-        let title = &result.translation.title;
-        mpv.video_add(LAZY_PLACEHOLDER_WEBM_B64, "auto", title)?;
-    }
 
     Ok(())
 }
