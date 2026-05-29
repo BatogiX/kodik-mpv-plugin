@@ -40,6 +40,7 @@ async fn fetch_animes(client: &Client, config: &Config, url: &str, host: &str) -
             shiki_api_animes.episodes,
             shiki_api_animes.episodes_aired,
             shiki_api_animes.status,
+            shiki_api_animes.kind,
             shiki_api_animes.user_rate,
             host.to_owned(),
             None,
@@ -69,6 +70,7 @@ async fn fetch_animes(client: &Client, config: &Config, url: &str, host: &str) -
                     anime.episodes,
                     anime.episodes_aired,
                     anime.status,
+                    anime.kind,
                     anime.user_rate,
                     host.to_owned(),
                     None,
@@ -127,29 +129,25 @@ pub fn expand(state: &mut PluginState, mpv: &mut Handle, url: &str, host: &str) 
         };
 
         for episode in 1..=episodes {
-            let mut media_title = if anime.episodes == 1 {
-                format!("{} - Movie", anime.name)
-            } else {
+            let mut media_title = if episodes > 1 {
                 format!("{} - Episode {}", anime.name, episode)
+            } else {
+                format!("{} - {}", anime.name, anime.kind.to_str())
             };
 
-            if let Some(user_rate) = anime.user_rate {
-                if user_rate.episodes >= episode {
-                    media_title.push(' ');
-                    media_title.push(COMPLETED_CHAR);
-                } else {
-                    match user_rate.status {
-                        UserRateStatus::Watching => {
-                            media_title.push(' ');
-                            media_title.push(WATCHING_CHAR);
-                        }
-                        UserRateStatus::Rewatching => {
-                            media_title.push(' ');
-                            media_title.push(REWATCHING_CHAR);
-                        }
-                        _ => {}
-                    }
-                }
+            if let Some(marker) =
+                anime
+                    .user_rate
+                    .as_ref()
+                    .and_then(|rate| match (rate.episodes >= episode, &rate.status) {
+                        (true, _) => Some(COMPLETED_CHAR),
+                        (false, UserRateStatus::Watching) => Some(WATCHING_CHAR),
+                        (false, UserRateStatus::Rewatching) => Some(REWATCHING_CHAR),
+                        _ => None,
+                    })
+            {
+                media_title.push(' ');
+                media_title.push(marker);
             }
 
             if seek_index.is_none() && !media_title.ends_with(COMPLETED_CHAR) {

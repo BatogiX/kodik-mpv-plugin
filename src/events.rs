@@ -1,5 +1,5 @@
 use anyhow::{Context as _, Result};
-use lazy_regex::{Lazy, Regex};
+use lazy_regex::{Lazy, Regex, regex};
 use mpv_client::{Handle, Node};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ pub const OBSERVE_YTDL_FORMAT_REPLY: u64 = 3;
 const ON_LOAD_PRIORITY: i32 = 50;
 const ON_PRELOADED_PRIORITY: i32 = 50;
 pub const KODIK_PAYLOAD_KEY: &str = "kodik-payload";
-pub const EXTRACT_HEIGHT_PATTERN: &Lazy<Regex> = lazy_regex::regex!(r"height<=\??(\d+)");
+pub const EXTRACT_HEIGHT_PATTERN: &Lazy<Regex> = regex!(r"height<=\??(\d+)");
 pub const VIDEO_TRACK_PLACEHOLDER: &str = "av://lavfi:color=c=black@0.0:s=1280x720:r=1";
 
 #[derive(Debug, Clone)]
@@ -175,8 +175,21 @@ fn on_preloaded(state: &PluginState, mpv: &mut Handle) -> Result<()> {
         .get(payload.metadata_key())
         .context("kodik videos should exist after on-load hook")?;
 
+    // TODO: get not just first season but iter throw seasons
+    let episode = payload.episode;
     for result in &kodik_videos.results {
         let title = &result.translation.title;
+
+        if let Some(ref seasons) = result.seasons
+            && let Some(season) = seasons.get(&1)
+        {
+            if !season.episodes.contains_key(&episode) {
+                continue;
+            }
+        } else if episode != 1 {
+            continue;
+        }
+
         mpv.video_add(VIDEO_TRACK_PLACEHOLDER, "auto", title)?;
     }
 
@@ -194,7 +207,7 @@ fn observe_vid_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
 
     state
         .config_mut()
-        .set_translation_title(Some(current_translation_title));
+        .set_translation_title(Some(regex::escape(&current_translation_title)));
 
     let time_pos = mpv.get_time_pos()?;
     mpv.set_file_local_options_start(time_pos)?;

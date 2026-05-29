@@ -1,4 +1,4 @@
-use kodik_shiki::{AnimeStatus, UserRate, UserRateStatus};
+use kodik_shiki::{AnimeKind, AnimeStatus, UserRate, UserRateStatus};
 use serde::{Deserialize, Serialize};
 
 mod expand;
@@ -20,6 +20,7 @@ pub struct ShikiMetaData {
     pub episodes: usize,
     pub episodes_aired: usize,
     pub status: AnimeStatus,
+    pub kind: AnimeKind,
     pub user_rate: Option<UserRate>,
     pub host: String,
     pub user_id: Option<usize>,
@@ -33,6 +34,7 @@ impl ShikiMetaData {
         episodes: usize,
         episodes_aired: usize,
         status: AnimeStatus,
+        kind: AnimeKind,
         user_rate: Option<UserRate>,
         host: String,
         user_id: Option<usize>,
@@ -43,6 +45,7 @@ impl ShikiMetaData {
             episodes,
             episodes_aired,
             status,
+            kind,
             user_rate,
             host,
             user_id,

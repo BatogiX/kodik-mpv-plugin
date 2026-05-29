@@ -45,7 +45,9 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: Paylo
         anyhow::Ok(user_id)
     }?;
 
-    let current_pos: i64 = mpv.get_playlist_pos()?;
+    let current_pos = mpv.get_playlist_pos()?;
+    let next_pos = current_pos + 1;
+    let last_pos = mpv.get_playlist_count()? - 1;
     let handle = state.runtime().handle().clone();
 
     handle.block_on(async {
@@ -157,7 +159,9 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: Paylo
         }
     });
 
-    let () = mpv.playlist_play_index(&(current_pos + 1).to_string())?;
+    if current_pos != last_pos {
+        mpv.playlist_play_index(&next_pos.to_string())?;
+    }
 
     Ok(())
 }
@@ -175,7 +179,7 @@ fn mark_as_watched_osd_text(
         }
         UserRateStatus::Completed => format!("{COMPLETED_CHAR} Marked as completed: {episode}/{episodes}"),
         UserRateStatus::Rewatching => {
-            format!("{REWATCHING_CHAR} Marked as watched: {episode}/{episodes} — rewatch #{rewatches}")
+            format!("{REWATCHING_CHAR} Marked as rewatched: {episode}/{episodes} — rewatch #{rewatches}")
         }
         UserRateStatus::Watching => format!("{WATCHING_CHAR} Marked as watched: {episode}/{episodes}"),
         _ => String::new(),
@@ -231,7 +235,7 @@ fn update_playlist_watched_titles(
         update_title(index, episode, COMPLETED_CHAR)?;
     }
 
-    for (index, episode) in (current_pos + 1..=i64::MAX).zip(user_rate.episodes + 1..=episodes) {
+    for (index, episode) in (current_pos + 1..i64::MAX).zip(user_rate.episodes + 1..=episodes) {
         update_title(index, episode, status_marker)?;
     }
 

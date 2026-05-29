@@ -48,6 +48,7 @@ pub trait MpvExt {
     fn reload_current_file(&mut self) -> Result<()>;
     fn get_current_tracks_video_title(&mut self) -> Result<String>;
     fn get_playlist_filename_by_index(&mut self, index: i64) -> Result<String>;
+    fn get_playlist_count(&mut self) -> Result<i64>;
 }
 
 impl MpvExt for Handle {
@@ -160,5 +161,10 @@ impl MpvExt for Handle {
     fn get_playlist_filename_by_index(&mut self, index: i64) -> Result<String> {
         self.get_property(format!("playlist/{index}/filename"))
             .with_mpv_context(|| format!("failed to get `playlist/{index}/filename`"))
+    }
+
+    fn get_playlist_count(&mut self) -> Result<i64> {
+        self.get_property("playlist-count")
+            .mpv_context("failed to `get-property playlist-count`")
     }
 }
