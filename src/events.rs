@@ -1,6 +1,4 @@
 use anyhow::{Context as _, Result};
-use base64::Engine as _;
-use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use lazy_regex::{Lazy, Regex};
 use mpv_client::{Handle, Node};
 use reqwest::Url;
@@ -44,18 +42,16 @@ impl Payload {
     }
 
     pub fn encode(&self) -> Result<String> {
-        let json = serde_json::to_vec(self).context("failed to serialize kodik payload")?;
-        let encoded = BASE64_URL_SAFE_NO_PAD.encode(json);
+        let json = serde_json::to_string(self).context("failed to serialize kodik payload")?;
 
-        Ok(format!("script-opts-append={KODIK_PAYLOAD_KEY}={encoded}"))
+        let script_opt = format!("{KODIK_PAYLOAD_KEY}={json}");
+        let quoted = format!("%{}%{}", script_opt.len(), script_opt);
+
+        Ok(format!("script-opts-append={quoted}"))
     }
 
-    pub fn decode(encoded: &str) -> Result<Self> {
-        let bytes = BASE64_URL_SAFE_NO_PAD
-            .decode(encoded)
-            .context("failed to decode kodik payload")?;
-
-        serde_json::from_slice(&bytes).context("failed to deserialize kodik payload")
+    pub fn decode(raw_json: &str) -> Result<Self> {
+        serde_json::from_str(raw_json).context("failed to deserialize kodik payload")
     }
 
     pub fn metadata_key(&self) -> &str {

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::{Result, anyhow};
 use mpv_client::{Format, Handle, Node};

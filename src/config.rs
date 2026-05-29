@@ -111,7 +111,7 @@ fn parse_key_value_conf(input: &str) -> Result<HashMap<String, String>> {
             );
         };
 
-        map.insert(key.trim().to_string(), value.trim().to_string());
+        map.insert(key.trim().to_owned(), value.trim().to_owned());
     }
 
     Ok(map)

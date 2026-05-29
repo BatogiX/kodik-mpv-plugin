@@ -1,6 +1,6 @@
 use std::{fmt::Display, str::FromStr, time::Duration};
 
-use crate::mpv_ext::{MpvExt, MpvResultExt};
+use crate::mpv_ext::MpvExt;
 use crate::shiki::{COMPLETED_CHAR, REWATCHING_CHAR, WATCHING_CHAR};
 use crate::{
     events::{MetaData, Payload},
@@ -50,8 +50,12 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: Paylo
 
     handle.block_on(async {
         let result = async {
-            let Some(MetaData::Shiki(shiki_metadata)) = state.metadata().get(payload.metadata_key()) else {
+            let Some(metadata) = state.metadata().get(payload.metadata_key()) else {
                 anyhow::bail!("must be inserted in `expand`");
+            };
+
+            let MetaData::Shiki(shiki_metadata) = metadata else {
+                anyhow::bail!("shiki payload expected");
             };
 
             let is_last_episode = payload.episode() == shiki_metadata.episodes;
@@ -132,8 +136,12 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: Paylo
                 )
             };
 
-            let Some(MetaData::Shiki(shiki_metadata)) = state.metadata_mut().get_mut(payload.metadata_key()) else {
+            let Some(metadata) = state.metadata_mut().get_mut(payload.metadata_key()) else {
                 anyhow::bail!("must be inserted in `expand`");
+            };
+
+            let MetaData::Shiki(shiki_metadata) = metadata else {
+                anyhow::bail!("shiki payload expected");
             };
 
             shiki_metadata.user_rate = Some(user_rate);

@@ -32,7 +32,6 @@ reqwest = { workspace = true, features = [
     "deflate",
 ] }
 serde = { workspace = true, features = ["derive"] }
-base64.workspace = true
 serde_json.workspace = true
 lazy-regex.workspace = true
 kodik-utils.workspace = true
