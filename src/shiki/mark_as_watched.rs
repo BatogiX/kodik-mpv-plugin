@@ -14,7 +14,7 @@ use reqwest::{Url, cookie::CookieStore};
 
 use crate::state::PluginState;
 
-pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: Payload) -> Result<()> {
+pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: &Payload) -> Result<()> {
     let user_id = {
         let metadata = state
             .metadata()
@@ -214,7 +214,10 @@ fn update_playlist_watched_titles(
         }
 
         let media_title = {
-            let last_char = media_title.chars().next_back().unwrap();
+            let last_char = media_title
+                .chars()
+                .next_back()
+                .context("media_title must not be empty")?;
             let base = &media_title[..media_title.len() - last_char.len_utf8()];
 
             if last_char.is_ascii_digit() {

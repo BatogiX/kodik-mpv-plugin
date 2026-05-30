@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use crate::{
     config::Quality,
     events::{MetaData, Payload},
@@ -43,23 +41,31 @@ pub fn on_load(state: &mut PluginState, mpv: &mut Handle, payload: &Payload) -> 
 
     let result = &kodik_videos.find_result(state.config().translation_title(), state.config().translation_type())?;
 
-    let mut episodes_accum = 0;
-    let Some(indirect_link) = result.seasons.as_ref().map_or(Some(&result.link), |seasons| {
-        seasons
-            .iter()
-            .filter(|(number, _)| **number > 0)
-            .find(|(_, season)| {
-                let last_episode = season.episodes.last_key_value().unwrap().0;
-                match (episodes_accum + last_episode).cmp(&payload.episode()) {
-                    Ordering::Less => {
-                        episodes_accum += last_episode;
-                        false
-                    }
-                    _ => true,
-                }
-            })
-            .and_then(|(_, season)| season.episodes.get(&(payload.episode() - episodes_accum)))
-    }) else {
+    let indirect_link = if let Some(seasons) = result.seasons.as_ref() {
+        let mut episodes_accum = 0;
+        let mut found = None;
+
+        for (_, season) in seasons.iter().filter(|(number, _)| **number > 0) {
+            let Some((&last_episode, _)) = season.episodes.last_key_value() else {
+                anyhow::bail!("season must have episodes");
+            };
+
+            if episodes_accum + last_episode < payload.episode() {
+                episodes_accum += last_episode;
+                continue;
+            }
+
+            found = season.episodes.get(&(payload.episode() - episodes_accum));
+
+            break;
+        }
+
+        found
+    } else {
+        Some(&result.link)
+    };
+
+    let Some(indirect_link) = indirect_link else {
         mpv.playlist_next_weak()?;
         anyhow::bail!("episode not found");
     };

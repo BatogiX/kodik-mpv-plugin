@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use anyhow::{Context as _, Result};
 use lazy_regex::{Lazy, Regex, regex};
 use mpv_client::{Handle, Node};
@@ -146,7 +144,7 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle) -> Result<()> 
     let payload = Payload::decode(&payload_encoded)?;
 
     match payload.metadata_key.split_once('.').context("expected host")?.0 {
-        "shikimori" => shiki::mark_as_watched(state, mpv, payload),
+        "shikimori" => shiki::mark_as_watched(state, mpv, &payload),
         "myanimelist" => todo!(),
         "imdb" => todo!(),
         "kinopoisk" => todo!(),
@@ -182,18 +180,23 @@ fn on_preloaded(state: &PluginState, mpv: &mut Handle) -> Result<()> {
         let mut episodes_accum = 0;
         let title = &result.translation.title;
 
-        if let Some(seasons) = &result.seasons
-            && let Some((_, season)) = seasons.iter().filter(|(number, _)| **number > 0).find(|(_, season)| {
-                let last_episode = season.episodes.last_key_value().unwrap().0;
-                match (episodes_accum + last_episode).cmp(&episode) {
-                    Ordering::Less => {
-                        episodes_accum += last_episode;
-                        false
-                    }
-                    _ => true,
+        let found_season = if let Some(seasons) = &result.seasons {
+            let mut found = None;
+            for (_, season) in seasons.iter().filter(|(number, _)| **number > 0) {
+                let last_episode = season.episodes.last_key_value().context("season must have episodes")?.0;
+                if (episodes_accum + last_episode) < episode {
+                    episodes_accum += last_episode;
+                } else {
+                    found = Some(season);
+                    break;
                 }
-            })
-        {
+            }
+            found
+        } else {
+            None
+        };
+
+        if let Some(season) = found_season {
             if !season.episodes.contains_key(&(episode - episodes_accum)) {
                 continue;
             }
