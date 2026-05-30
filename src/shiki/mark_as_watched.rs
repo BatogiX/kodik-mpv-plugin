@@ -1,4 +1,4 @@
-use std::{fmt::Display, str::FromStr, time::Duration};
+use std::{str::FromStr, time::Duration};
 
 use crate::mpv_ext::MpvExt;
 use crate::shiki::{COMPLETED_CHAR, REWATCHING_CHAR, WATCHING_CHAR};
@@ -15,10 +15,12 @@ use reqwest::{Url, cookie::CookieStore};
 use crate::state::PluginState;
 
 pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: &Payload) -> Result<()> {
+    let (metadata_key, episode) = (payload.metadata_key(), payload.episode());
+
     let user_id = {
         let metadata = state
             .metadata()
-            .get(payload.metadata_key())
+            .get(metadata_key)
             .context("must be inserted in `expand`")?;
 
         let MetaData::Shiki(shiki_metadata) = metadata else {
@@ -48,11 +50,24 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: &Payl
     let current_pos = mpv.get_playlist_pos()?;
     let last_pos = mpv.get_playlist_count()? - 1;
     let next_pos = current_pos + 1;
-    let handle = state.runtime().handle().clone();
 
-    handle.block_on(update_user_rate_and_osd(state, mpv, payload, user_id, current_pos))?;
+    let user_rate = state
+        .runtime()
+        .block_on(update_user_rate_and_osd(state, metadata_key, episode, user_id))?;
 
-    if current_pos != last_pos {
+    let Some(metadata) = state.metadata_mut().get_mut(metadata_key) else {
+        anyhow::bail!("must be inserted in `expand`")
+    };
+    let MetaData::Shiki(shiki_metadata) = metadata else {
+        anyhow::bail!("shiki payload expected")
+    };
+
+    shiki_metadata.user_rate = Some(user_rate);
+    update_playlist_watched_titles(mpv, shiki_metadata, current_pos, metadata_key)?;
+    let osd_text = mark_as_watched_osd_text(&user_rate, shiki_metadata);
+    let _ = mpv_client::osd!(mpv, Duration::from_secs(8), "{osd_text}");
+
+    if current_pos < last_pos {
         mpv.playlist_play_index(&next_pos.to_string())?;
     }
 
@@ -60,32 +75,31 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: &Payl
 }
 
 async fn update_user_rate_and_osd(
-    state: &mut PluginState,
-    mpv: &mut Handle,
-    payload: &Payload,
+    state: &PluginState,
+    metadata_key: &str,
+    episode: usize,
     user_id: usize,
-    current_pos: i64,
-) -> Result<()> {
-    let metadata_key = payload.metadata_key();
-    let episode = payload.episode();
+) -> Result<UserRate> {
     let shiki_metadata = state
         .metadata()
         .get(metadata_key)
         .context("must be inserted in `expand`")?;
+
     let MetaData::Shiki(shiki_metadata) = shiki_metadata else {
         anyhow::bail!("shiki payload expected")
     };
+
     let is_last_episode = episode == shiki_metadata.episodes;
 
-    let (user_rate, osd_text) = if let Some(user_rate) = shiki_metadata.user_rate.as_ref() {
-        let (rewatches, status, completed) = if is_last_episode
+    let user_rate = if let Some(user_rate) = shiki_metadata.user_rate.as_ref() {
+        let (rewatches, status) = if is_last_episode
             && (user_rate.status == UserRateStatus::Rewatching || user_rate.status == UserRateStatus::Completed)
         {
-            (user_rate.rewatches + 1, UserRateStatus::Completed, true)
+            (user_rate.rewatches + 1, UserRateStatus::Completed)
         } else if user_rate.status == UserRateStatus::Completed || user_rate.status == UserRateStatus::Rewatching {
-            (user_rate.rewatches, UserRateStatus::Rewatching, false)
+            (user_rate.rewatches, UserRateStatus::Rewatching)
         } else {
-            (user_rate.rewatches, UserRateStatus::Watching, false)
+            (user_rate.rewatches, UserRateStatus::Watching)
         };
 
         let rates = ShikiApiUserRates::new(
@@ -105,10 +119,7 @@ async fn update_user_rate_and_osd(
             )
             .await?;
 
-        (
-            user_rate,
-            mark_as_watched_osd_text(episode, shiki_metadata.episodes, status, rewatches, completed),
-        )
+        user_rate
     } else {
         let status = if is_last_episode {
             UserRateStatus::Completed
@@ -130,35 +141,23 @@ async fn update_user_rate_and_osd(
             .post_json_as_json(&format!("https://{}/api/v2/user_rates", shiki_metadata.host), &rates)
             .await?;
 
-        (
-            user_rate,
-            mark_as_watched_osd_text(episode, shiki_metadata.episodes, status, 0, false),
-        )
+        user_rate
     };
 
-    let Some(metadata) = state.metadata_mut().get_mut(metadata_key) else {
-        anyhow::bail!("must be inserted in `expand`")
-    };
-    let MetaData::Shiki(shiki_metadata) = metadata else {
-        anyhow::bail!("shiki payload expected")
-    };
-
-    shiki_metadata.user_rate = Some(user_rate);
-    update_playlist_watched_titles(mpv, shiki_metadata, current_pos, metadata_key)?;
-    let _ = mpv_client::osd!(mpv, Duration::from_secs(8), "{osd_text}");
-
-    anyhow::Ok(())
+    anyhow::Ok(user_rate)
 }
 
-fn mark_as_watched_osd_text(
-    episode: impl Display,
-    episodes: impl Display,
-    status: UserRateStatus,
-    rewatches: impl Display,
-    completed_rewatch: bool,
-) -> String {
+fn mark_as_watched_osd_text(user_rate: &UserRate, anime: &ShikiMetaData) -> String {
+    let (status, episode, rewatches) = (user_rate.status, user_rate.episodes, user_rate.rewatches);
+
+    let episodes = if anime.status == AnimeStatus::Ongoing {
+        anime.episodes_aired
+    } else {
+        anime.episodes
+    };
+
     match status {
-        UserRateStatus::Completed if completed_rewatch => {
+        UserRateStatus::Completed if rewatches > 0 => {
             format!("{COMPLETED_CHAR} Rewatch completed: {episode}/{episodes} — rewatch #{rewatches}")
         }
         UserRateStatus::Completed => format!("{COMPLETED_CHAR} Marked as completed: {episode}/{episodes}"),
