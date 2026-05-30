@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use anyhow::{Context as _, Result};
 use lazy_regex::{Lazy, Regex, regex};
 use mpv_client::{Handle, Node};
@@ -10,15 +12,13 @@ use crate::shiki;
 use crate::shiki::ShikiMetaData;
 use crate::state::PluginState;
 
-pub const ON_LOAD_REPLY: u64 = 0;
-pub const ON_PRELOADED_REPLY: u64 = 1;
-pub const OBSERVE_VID_REPLY: u64 = 2;
-pub const OBSERVE_YTDL_FORMAT_REPLY: u64 = 3;
+const ON_LOAD_REPLY: u64 = 0;
+const ON_PRELOADED_REPLY: u64 = 1;
+const OBSERVE_VID_REPLY: u64 = 2;
+const OBSERVE_YTDL_FORMAT_REPLY: u64 = 3;
 const ON_LOAD_PRIORITY: i32 = 50;
 const ON_PRELOADED_PRIORITY: i32 = 50;
 pub const KODIK_PAYLOAD_KEY: &str = "kodik-payload";
-pub const EXTRACT_HEIGHT_PATTERN: &Lazy<Regex> = regex!(r"height<=\??(\d+)");
-pub const VIDEO_TRACK_PLACEHOLDER: &str = "av://lavfi:color=c=black@0.0:s=1280x720:r=1";
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -158,6 +158,8 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle) -> Result<()> 
 }
 
 fn on_preloaded(state: &PluginState, mpv: &mut Handle) -> Result<()> {
+    const VIDEO_TRACK_PLACEHOLDER: &str = "av://lavfi:color=c=black@0.0:s=1280x720:r=1";
+
     let mut script_opts = mpv.get_script_opts()?;
 
     let Some(node) = script_opts.remove(KODIK_PAYLOAD_KEY) else {
@@ -169,24 +171,33 @@ fn on_preloaded(state: &PluginState, mpv: &mut Handle) -> Result<()> {
     };
 
     let payload = Payload::decode(&payload_encoded)?;
+    let (metadata_key, episode) = (payload.metadata_key(), payload.episode());
 
     let kodik_videos = state
         .kodik_videos()
-        .get(payload.metadata_key())
+        .get(metadata_key)
         .context("kodik videos should exist after on-load hook")?;
 
-    // TODO: get not just first season but iter throw seasons
-    let episode = payload.episode;
     for result in &kodik_videos.results {
+        let mut episodes_accum = 0;
         let title = &result.translation.title;
 
-        if let Some(ref seasons) = result.seasons
-            && let Some(season) = seasons.get(&1)
+        if let Some(seasons) = &result.seasons
+            && let Some((_, season)) = seasons.iter().filter(|(number, _)| **number > 0).find(|(_, season)| {
+                let last_episode = season.episodes.last_key_value().unwrap().0;
+                match (episodes_accum + last_episode).cmp(&episode) {
+                    Ordering::Less => {
+                        episodes_accum += last_episode;
+                        false
+                    }
+                    _ => true,
+                }
+            })
         {
-            if !season.episodes.contains_key(&episode) {
+            if !season.episodes.contains_key(&(episode - episodes_accum)) {
                 continue;
             }
-        } else if episode != 1 {
+        } else if episode > 1 {
             continue;
         }
 
@@ -217,6 +228,8 @@ fn observe_vid_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
 }
 
 fn observe_ytdl_format_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
+    const EXTRACT_HEIGHT_PATTERN: &Lazy<Regex> = lazy_regex::regex!(r"height<=\??(\d+)");
+
     let quality = EXTRACT_HEIGHT_PATTERN
         .captures(&mpv.get_ytdl_format()?)
         .and_then(|caps| caps.get(1))

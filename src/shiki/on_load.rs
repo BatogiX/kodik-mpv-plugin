@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use crate::{
     config::Quality,
     events::{MetaData, Payload},
@@ -41,11 +43,22 @@ pub fn on_load(state: &mut PluginState, mpv: &mut Handle, payload: &Payload) -> 
 
     let result = &kodik_videos.find_result(state.config().translation_title(), state.config().translation_type())?;
 
+    let mut episodes_accum = 0;
     let Some(indirect_link) = result.seasons.as_ref().map_or(Some(&result.link), |seasons| {
         seasons
             .iter()
-            .last()
-            .and_then(|(_, season)| season.episodes.get(&payload.episode()))
+            .filter(|(number, _)| **number > 0)
+            .find(|(_, season)| {
+                let last_episode = season.episodes.last_key_value().unwrap().0;
+                match (episodes_accum + last_episode).cmp(&payload.episode()) {
+                    Ordering::Less => {
+                        episodes_accum += last_episode;
+                        false
+                    }
+                    _ => true,
+                }
+            })
+            .and_then(|(_, season)| season.episodes.get(&(payload.episode() - episodes_accum)))
     }) else {
         mpv.playlist_next_weak()?;
         anyhow::bail!("episode not found");

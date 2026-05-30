@@ -56,7 +56,7 @@ extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
                 }
             }
             Event::ClientMessage(data) => {
-                if let ["key-binding", "watched", "dm-" | "d--", ..] = data.args().as_slice()
+                if let ["key-binding", "watched", "d--" | "dm-", ..] = data.args().as_slice()
                     && let Err(err) = events::mark_as_watched(&mut state, mpv)
                 {
                     log::error!("failed to mark as watched: {err:?}");
