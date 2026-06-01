@@ -1,13 +1,21 @@
-use crate::{config::Quality, mpv_ext::MpvExt as _, state::PluginState};
 use anyhow::Result;
 use kodik_utils::ClientExt as _;
 use mpv_client::Handle;
 
+use crate::{config::Quality, mpv_ext::MpvExt, state::PluginState};
+
 pub fn on_load(state: &PluginState, mpv: &mut Handle, indirect_link: &str) -> Result<()> {
-    let mut links = state.runtime().block_on(async {
-        let links = kodik_parser::parse(state.client(), indirect_link).await?;
-        Ok::<[String; 3], anyhow::Error>([links.p720, links.p480, links.p360])
-    })?;
+    let direct_link = resolve_indirect_link(state, indirect_link)?;
+    mpv.set_stream_open_filename(direct_link)?;
+    Ok(())
+}
+
+pub fn resolve_indirect_link(state: &PluginState, indirect_link: &str) -> Result<String> {
+    let links = state
+        .runtime()
+        .block_on(async { kodik_parser::parse(state.client(), indirect_link).await })?;
+
+    let mut links = [links.p720, links.p480, links.p360];
 
     match state.config().quality() {
         Quality::P720 => {}
@@ -15,25 +23,15 @@ pub fn on_load(state: &PluginState, mpv: &mut Handle, indirect_link: &str) -> Re
         Quality::P360 => links.swap(2, 0),
     }
 
-    let mut direct_link = None;
     for link in links {
         let text = state
             .runtime()
             .block_on(async { state.client().fetch_as_text(&link).await })?;
 
-        if text.is_empty() {
-            continue;
+        if !text.is_empty() {
+            return Ok(link);
         }
-
-        direct_link = Some(link);
-        break;
     }
 
-    let Some(direct_link) = direct_link else {
-        anyhow::bail!("invalid links")
-    };
-
-    mpv.set_stream_open_filename(direct_link)?;
-
-    Ok(())
+    anyhow::bail!("invalid links");
 }
