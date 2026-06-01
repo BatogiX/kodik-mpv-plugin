@@ -1,4 +1,5 @@
 use anyhow::Result;
+use kodik_parser::Links;
 use kodik_utils::ClientExt as _;
 use mpv_client::Handle;
 
@@ -13,7 +14,7 @@ pub fn on_load(state: &PluginState, mpv: &mut Handle, indirect_link: &str) -> Re
 pub fn resolve_indirect_link(state: &PluginState, indirect_link: &str) -> Result<String> {
     let links = state
         .runtime()
-        .block_on(async { kodik_parser::parse(state.client(), indirect_link).await })?;
+        .block_on(async { Links::fetch(state.client(), indirect_link).await })?;
 
     let mut links = [links.p720, links.p480, links.p360];
 

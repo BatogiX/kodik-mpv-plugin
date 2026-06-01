@@ -9,7 +9,7 @@ use crate::{
     shiki::ShikiMetaData,
 };
 use anyhow::Result;
-use kodik_shiki::{AnimeStatus, Related, ShikiApiAnimes, ShikiApiUsersWhoami, UserRateStatus};
+use kodik_shiki::{Anime, AnimeStatus, Franchise, UserRateStatus, Whoami};
 use mpv_client::Handle;
 use reqwest::cookie::CookieStore as _;
 use reqwest::{Client, Url};
@@ -17,13 +17,13 @@ use reqwest::{Client, Url};
 use crate::{config::RelatedMode, state::PluginState};
 
 async fn fetch_user_id(client: &Client, host: &str) -> Result<Option<usize>> {
-    let user_id = ShikiApiUsersWhoami::fetch(client, host).await?.id;
+    let user_id = Whoami::fetch(client, host).await?.id;
 
     anyhow::Ok(user_id)
 }
 
 async fn fetch_animes(client: &Client, config: &Config, url: &str, host: &str) -> Result<Vec<ShikiMetaData>> {
-    let shiki_api_animes = ShikiApiAnimes::fetch(client, url).await?;
+    let shiki_api_animes = Anime::fetch(client, url).await?;
 
     let Some(franchise) = shiki_api_animes
         .franchise
@@ -43,20 +43,20 @@ async fn fetch_animes(client: &Client, config: &Config, url: &str, host: &str) -
         )]);
     };
 
-    let mut related = if config.related_mode() == RelatedMode::Essential {
+    let mut franchise = if config.related_mode() == RelatedMode::Essential {
         let not_anime_ids = kodik_shiki::fetch_not_anime_ids(client, franchise)
             .await?
             .unwrap_or(&[]);
 
-        Related::fetch_by_franchise(client, franchise, host, not_anime_ids).await?
+        Franchise::fetch(client, franchise, host, not_anime_ids).await?
     } else {
-        Related::fetch_by_franchise(client, franchise, host, &[]).await?
+        Franchise::fetch(client, franchise, host, &[]).await?
     };
 
-    related.sort_by_chrono();
+    franchise.sort_by_chrono();
 
     Ok::<Vec<ShikiMetaData>, anyhow::Error>(
-        related
+        franchise
             .animes
             .into_iter()
             .map(|anime| {

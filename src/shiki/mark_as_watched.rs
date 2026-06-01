@@ -7,7 +7,7 @@ use crate::{
     shiki::ShikiMetaData,
 };
 use anyhow::{Context, Result};
-use kodik_shiki::{AnimeStatus, ShikiApiUserRates, UserRate, UserRateStatus, UserRatesTargetType};
+use kodik_shiki::{AnimeStatus, UserRate, UserRateStatus, UserRates, UserRatesTargetType};
 use mpv_client::Handle;
 use reqwest::{Url, cookie::CookieStore};
 
@@ -101,7 +101,7 @@ async fn update_user_rate_and_osd(
             (user_rate.rewatches, UserRateStatus::Watching)
         };
 
-        let user_rates = ShikiApiUserRates::new(
+        let user_rates = UserRates::new(
             episode,
             rewatches,
             status,
@@ -120,7 +120,7 @@ async fn update_user_rate_and_osd(
             UserRateStatus::Watching
         };
 
-        let user_rates = ShikiApiUserRates::new(
+        let user_rates = UserRates::new(
             episode,
             0,
             status,
