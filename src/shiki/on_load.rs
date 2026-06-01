@@ -4,6 +4,7 @@ use crate::{
     mpv_ext::MpvExt,
 };
 use anyhow::{Context as _, Result};
+use kodik_parser::KodikApiResponse;
 use kodik_utils::ClientExt as _;
 use mpv_client::Handle;
 
@@ -25,10 +26,9 @@ pub fn on_load(state: &mut PluginState, mpv: &mut Handle, payload: &Payload) -> 
 
     // TODO: Merge in one if let
     if !state.kodik_videos().contains_key(payload.metadata_key()) {
-        let videos = state.runtime().block_on(kodik_parser::fetch_shiki_kodik_videos(
-            state.client(),
-            shiki_metadata.id,
-        ))?;
+        let videos = state
+            .runtime()
+            .block_on(KodikApiResponse::fetch_shiki(state.client(), shiki_metadata.id))?;
 
         state
             .kodik_videos_mut()
