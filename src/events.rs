@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::Quality;
 use crate::mpv_ext::MpvExt;
-use crate::shiki;
 use crate::shiki::ShikiMetaData;
 use crate::state::PluginState;
+use crate::{kodik, shiki};
 
 const ON_LOAD_REPLY: u64 = 0;
 const ON_PRELOADED_REPLY: u64 = 1;
@@ -16,7 +16,10 @@ const OBSERVE_VID_REPLY: u64 = 2;
 const OBSERVE_YTDL_FORMAT_REPLY: u64 = 3;
 const ON_LOAD_PRIORITY: i32 = 50;
 const ON_PRELOADED_PRIORITY: i32 = 50;
-pub const KODIK_PAYLOAD_KEY: &str = "kodik-payload";
+const KODIK_PAYLOAD_KEY: &str = "kodik-payload";
+const KODIK_HOST_NAME: &str = "kodikplayer";
+const SHIKI_HOST_NAME: &str = "shikimori";
+const MAL_HOST_NAME: &str = "myanimelist";
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -99,8 +102,8 @@ fn on_load(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
             let payload = Payload::decode(&payload_encoded)?;
 
             match payload.metadata_key.split_once('.').context("expected host")?.0 {
-                "shikimori" => shiki::on_load(state, mpv, &payload),
-                "myanimelist" => todo!(),
+                SHIKI_HOST_NAME => shiki::on_load(state, mpv, &payload),
+                MAL_HOST_NAME => todo!(),
                 "imdb" => todo!(),
                 "kinopoisk" => todo!(),
                 "mydramalist" => todo!(),
@@ -120,8 +123,9 @@ fn on_load(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
     };
 
     match host_name {
-        "shikimori" => shiki::expand(state, mpv, url.as_str(), host),
-        "myanimelist" => todo!(),
+        KODIK_HOST_NAME => kodik::on_load(state, mpv, &filename),
+        SHIKI_HOST_NAME => shiki::expand(state, mpv, url.as_str(), host),
+        MAL_HOST_NAME => todo!(),
         "kinopoisk" => todo!(),
         "imdb" => todo!(),
         _ => Ok(()),
@@ -144,8 +148,8 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle) -> Result<()> 
     let payload = Payload::decode(&payload_encoded)?;
 
     match payload.metadata_key.split_once('.').context("expected host")?.0 {
-        "shikimori" => shiki::mark_as_watched(state, mpv, &payload),
-        "myanimelist" => todo!(),
+        SHIKI_HOST_NAME => shiki::mark_as_watched(state, mpv, &payload),
+        MAL_HOST_NAME => todo!(),
         "imdb" => todo!(),
         "kinopoisk" => todo!(),
         "mydramalist" => todo!(),

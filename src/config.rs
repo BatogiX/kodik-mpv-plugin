@@ -1,5 +1,5 @@
 use anyhow::{Context as _, Result};
-use kodik_shiki::TranslationType;
+use kodik_parser::TranslationType;
 use log::LevelFilter;
 use mpv_client::{Handle, Node};
 use reqwest::{Url, cookie::Jar};

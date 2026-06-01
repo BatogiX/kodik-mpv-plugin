@@ -4,11 +4,10 @@ use crate::mpv_ext::MpvExt;
 use crate::shiki::{COMPLETED_CHAR, REWATCHING_CHAR, WATCHING_CHAR};
 use crate::{
     events::{MetaData, Payload},
-    shiki::{ShikiApiUserRates, ShikiMetaData, UserRatesTargetType},
+    shiki::ShikiMetaData,
 };
 use anyhow::{Context, Result};
-use kodik_shiki::{AnimeStatus, UserRate, UserRateStatus};
-use kodik_utils::{PATCH as _, POST};
+use kodik_shiki::{AnimeStatus, ShikiApiUserRates, UserRate, UserRateStatus, UserRatesTargetType};
 use mpv_client::Handle;
 use reqwest::{Url, cookie::CookieStore};
 
@@ -67,7 +66,7 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: &Payl
     let osd_text = mark_as_watched_osd_text(&user_rate, shiki_metadata);
     let _ = mpv_client::osd!(mpv, Duration::from_secs(8), "{osd_text}");
 
-    if current_pos < last_pos {
+    if current_pos != last_pos {
         mpv.playlist_play_index(&next_pos.to_string())?;
     }
 
@@ -102,7 +101,7 @@ async fn update_user_rate_and_osd(
             (user_rate.rewatches, UserRateStatus::Watching)
         };
 
-        let rates = ShikiApiUserRates::new(
+        let user_rates = ShikiApiUserRates::new(
             episode,
             rewatches,
             status,
@@ -111,15 +110,9 @@ async fn update_user_rate_and_osd(
             user_id,
         );
 
-        let user_rate: UserRate = state
-            .client()
-            .patch_json_as_json(
-                &format!("https://{}/api/v2/user_rates/{}", shiki_metadata.host, user_rate.id),
-                &rates,
-            )
-            .await?;
-
-        user_rate
+        user_rates
+            .patch(state.client(), &shiki_metadata.host, user_rate.id)
+            .await?
     } else {
         let status = if is_last_episode {
             UserRateStatus::Completed
@@ -127,7 +120,7 @@ async fn update_user_rate_and_osd(
             UserRateStatus::Watching
         };
 
-        let rates = ShikiApiUserRates::new(
+        let user_rates = ShikiApiUserRates::new(
             episode,
             0,
             status,
@@ -136,12 +129,7 @@ async fn update_user_rate_and_osd(
             user_id,
         );
 
-        let user_rate: UserRate = state
-            .client()
-            .post_json_as_json(&format!("https://{}/api/v2/user_rates", shiki_metadata.host), &rates)
-            .await?;
-
-        user_rate
+        user_rates.post(state.client(), &shiki_metadata.host).await?
     };
 
     anyhow::Ok(user_rate)

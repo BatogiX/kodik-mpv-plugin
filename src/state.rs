@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context as _, Result};
-use kodik_shiki::KodikApiResponse;
+use kodik_parser::KodikApiResponse;
 use mpv_client::Handle;
 use reqwest::{Client, cookie::Jar};
 use tokio::runtime::{Builder, Runtime};

@@ -6,6 +6,7 @@ use mpv_client::{Event, Handle, mpv_handle};
 mod cache;
 mod config;
 mod events;
+mod kodik;
 mod logger;
 mod mpv_ext;
 mod shiki;

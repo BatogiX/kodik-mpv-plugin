@@ -3,14 +3,13 @@ use std::str::FromStr as _;
 
 use crate::config::Config;
 use crate::mpv_ext::MpvExt;
-use crate::shiki::{COMPLETED_CHAR, REWATCHING_CHAR, WATCHING_CHAR};
+use crate::shiki::{COMPLETED_CHAR, DROPPED_CHAR, ONHOLD_CHAR, PLANNED_CHAR, REWATCHING_CHAR, WATCHING_CHAR};
 use crate::{
     events::{MetaData, Payload},
-    shiki::{ShikiApiUsersWhoami, ShikiMetaData},
+    shiki::ShikiMetaData,
 };
 use anyhow::Result;
-use kodik_shiki::{AnimeStatus, Related, UserRateStatus};
-use kodik_utils::GET;
+use kodik_shiki::{AnimeStatus, Related, ShikiApiAnimes, ShikiApiUsersWhoami, UserRateStatus};
 use mpv_client::Handle;
 use reqwest::cookie::CookieStore as _;
 use reqwest::{Client, Url};
@@ -18,16 +17,13 @@ use reqwest::{Client, Url};
 use crate::{config::RelatedMode, state::PluginState};
 
 async fn fetch_user_id(client: &Client, host: &str) -> Result<Option<usize>> {
-    let user_id = client
-        .fetch_as_json::<ShikiApiUsersWhoami>(&format!("https://{host}/api/users/whoami"))
-        .await?
-        .id;
+    let user_id = ShikiApiUsersWhoami::fetch(client, host).await?.id;
 
     anyhow::Ok(user_id)
 }
 
 async fn fetch_animes(client: &Client, config: &Config, url: &str, host: &str) -> Result<Vec<ShikiMetaData>> {
-    let shiki_api_animes = kodik_shiki::fetch_shiki_api_animes(client, url).await?;
+    let shiki_api_animes = ShikiApiAnimes::fetch(client, url).await?;
 
     let Some(franchise) = shiki_api_animes
         .franchise
@@ -143,6 +139,9 @@ pub fn expand(state: &mut PluginState, mpv: &mut Handle, url: &str, host: &str) 
                         (true, _) => Some(COMPLETED_CHAR),
                         (false, UserRateStatus::Watching) => Some(WATCHING_CHAR),
                         (false, UserRateStatus::Rewatching) => Some(REWATCHING_CHAR),
+                        (false, UserRateStatus::Dropped) => Some(DROPPED_CHAR),
+                        (false, UserRateStatus::OnHold) => Some(ONHOLD_CHAR),
+                        (false, UserRateStatus::Planned) => Some(PLANNED_CHAR),
                         _ => None,
                     })
             {
