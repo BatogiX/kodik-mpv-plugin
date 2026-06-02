@@ -21,9 +21,9 @@ stages:
   image: rust:latest
   before_script:
     - apt-get update -qq && apt-get install -y -qq pkg-config git
-    - git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/BatogiX/kodik.git ../kodik-main
+    - git clone --depth 1 --recurse-submodules https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/BatogiX/kodik.git ../kodik-main
     - mv ../kodik-main/Cargo.toml ../Cargo.toml
-    - for d in kodik-parser kodik-utils kodik-shiki; do [ -d ../kodik-main/$d ] && mv ../kodik-main/$d ../; done
+    - for d in ../kodik-main/*; do [ -d "$d" ] && mv "$d" ../; done
     - rm -rf ../kodik-main
   cache:
     key: ${CI_COMMIT_REF_SLUG}-linux
@@ -48,6 +48,13 @@ stages:
 .windows_build_template:
   image: rust:latest
   stage: build
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq mingw-w64 git
+    - git clone --depth 1 --recurse-submodules https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/BatogiX/kodik.git ../kodik-main
+    - mv ../kodik-main/Cargo.toml ../Cargo.toml
+    - for d in ../kodik-main/*; do [ -d "$d" ] && mv "$d" ../; done
+    - rm -rf ../kodik-main
+    - rustup target add x86_64-pc-windows-gnu
   cache:
     key: ${CI_COMMIT_REF_SLUG}-windows
     paths:
@@ -55,13 +62,6 @@ stages:
       - .cargo/registry/index/
       - .cargo/registry/cache/
       - .cargo/git/db/
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq mingw-w64 git
-    - git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/BatogiX/kodik.git ../kodik-main
-    - mv ../kodik-main/Cargo.toml ../Cargo.toml
-    - for d in kodik-parser kodik-utils kodik-shiki; do [ -d ../kodik-main/$d ] && mv ../kodik-main/$d ../; done
-    - rm -rf ../kodik-main
-    - rustup target add x86_64-pc-windows-gnu
   script:
     - export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
     - cargo build --release -p kodik-mpv-plugin --target x86_64-pc-windows-gnu
@@ -74,6 +74,16 @@ stages:
 .android_build_template:
   image: rust:latest
   stage: build
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq pkg-config wget unzip git
+    - git clone --depth 1 --recurse-submodules https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/BatogiX/kodik.git ../kodik-main
+    - mv ../kodik-main/Cargo.toml ../Cargo.toml
+    - for d in ../kodik-main/*; do [ -d "$d" ] && mv "$d" ../; done
+    - rm -rf ../kodik-main
+    - wget -q https://dl.google.com/android/repository/android-ndk-${ANDROID_NDK_VERSION}-linux.zip
+    - unzip -q android-ndk-${ANDROID_NDK_VERSION}-linux.zip -d /opt
+    - export PATH=/opt/android-ndk-${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+    - rustup target add aarch64-linux-android
   cache:
     key: ${CI_COMMIT_REF_SLUG}-android
     paths:
@@ -84,16 +94,6 @@ stages:
   variables:
     ANDROID_NDK_VERSION: "r26b"
     ANDROID_API_LEVEL: "24"
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq pkg-config wget unzip git
-    - git clone --depth 1 https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/BatogiX/kodik.git ../kodik-main
-    - mv ../kodik-main/Cargo.toml ../Cargo.toml
-    - for d in kodik-parser kodik-utils kodik-shiki; do [ -d ../kodik-main/$d ] && mv ../kodik-main/$d ../; done
-    - rm -rf ../kodik-main
-    - wget -q https://dl.google.com/android/repository/android-ndk-${ANDROID_NDK_VERSION}-linux.zip
-    - unzip -q android-ndk-${ANDROID_NDK_VERSION}-linux.zip -d /opt
-    - export PATH=/opt/android-ndk-${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
-    - rustup target add aarch64-linux-android
   script:
     - export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=aarch64-linux-android${ANDROID_API_LEVEL}-clang
     - cargo build --release -p kodik-mpv-plugin --target aarch64-linux-android
