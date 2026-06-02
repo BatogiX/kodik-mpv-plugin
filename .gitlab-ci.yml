@@ -23,6 +23,7 @@ stages:
     - apt-get update -qq && apt-get install -y -qq pkg-config git
     - git clone --depth 1 --recurse-submodules https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/BatogiX/kodik.git ../kodik-main
     - mv ../kodik-main/Cargo.toml ../Cargo.toml
+    - rm -rf ../kodik-main/kodik-mpv-plugin
     - for d in ../kodik-main/*; do [ -d "$d" ] && mv "$d" ../; done
     - rm -rf ../kodik-main
   cache:
@@ -52,6 +53,7 @@ stages:
     - apt-get update -qq && apt-get install -y -qq mingw-w64 git
     - git clone --depth 1 --recurse-submodules https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/BatogiX/kodik.git ../kodik-main
     - mv ../kodik-main/Cargo.toml ../Cargo.toml
+    - rm -rf ../kodik-main/kodik-mpv-plugin
     - for d in ../kodik-main/*; do [ -d "$d" ] && mv "$d" ../; done
     - rm -rf ../kodik-main
     - rustup target add x86_64-pc-windows-gnu
@@ -78,6 +80,7 @@ stages:
     - apt-get update -qq && apt-get install -y -qq pkg-config wget unzip git
     - git clone --depth 1 --recurse-submodules https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/BatogiX/kodik.git ../kodik-main
     - mv ../kodik-main/Cargo.toml ../Cargo.toml
+    - rm -rf ../kodik-main/kodik-mpv-plugin
     - for d in ../kodik-main/*; do [ -d "$d" ] && mv "$d" ../; done
     - rm -rf ../kodik-main
     - wget -q https://dl.google.com/android/repository/android-ndk-${ANDROID_NDK_VERSION}-linux.zip
