@@ -22,7 +22,15 @@ impl PluginState {
         let config = Config::load(mpv)?;
         let jar = Arc::new(config.load_cookies()?);
 
+        let mut certs = Vec::new();
+        for cert_der in webpki_root_certs::TLS_SERVER_ROOT_CERTS {
+            if let Ok(cert) = reqwest::Certificate::from_der(cert_der.as_ref()) {
+                certs.push(cert);
+            }
+        }
+
         let client = Client::builder()
+            .tls_certs_only(certs)
             .cookie_store(true)
             .gzip(true)
             .brotli(true)

@@ -1,7 +1,8 @@
 [package]
 name = "kodik-mpv-plugin"
-version = "0.1.0"
+version = "0.1.1"
 description = "mpv plugin to get direct links to Kodik"
+readme = "README.md"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -9,7 +10,6 @@ homepage.workspace = true
 documentation.workspace = true
 keywords.workspace = true
 categories.workspace = true
-readme.workspace = true
 
 [lib]
 crate-type = ["cdylib"]
@@ -37,6 +37,7 @@ kodik-utils.workspace = true
 log.workspace = true
 env_logger.workspace = true
 futures.workspace = true
+webpki-root-certs.workspace = true
 
 [features]
 bindgen = ["mpv-client/bindgen"]

@@ -12,7 +12,7 @@ use crate::{kodik, shiki};
 
 const ON_LOAD_REPLY: u64 = 0;
 const ON_PRELOADED_REPLY: u64 = 1;
-const OBSERVE_VID_REPLY: u64 = 2;
+const OBSERVE_AID_REPLY: u64 = 2;
 const OBSERVE_YTDL_FORMAT_REPLY: u64 = 3;
 const ON_LOAD_PRIORITY: i32 = 50;
 const ON_PRELOADED_PRIORITY: i32 = 50;
@@ -67,7 +67,7 @@ impl Payload {
 pub fn register(mpv: &mut Handle) -> Result<()> {
     mpv.hook_add_ext(ON_LOAD_REPLY, "on_load", ON_LOAD_PRIORITY)?;
     mpv.hook_add_ext(ON_PRELOADED_REPLY, "on_preloaded", ON_PRELOADED_PRIORITY)?;
-    mpv.observe_property_ext::<i64>(OBSERVE_VID_REPLY, "current-tracks/video/id")?;
+    mpv.observe_property_ext::<i64>(OBSERVE_AID_REPLY, "current-tracks/audio/id")?;
     mpv.observe_property_ext::<String>(OBSERVE_YTDL_FORMAT_REPLY, "ytdl-format")?;
 
     Ok(())
@@ -77,7 +77,7 @@ pub fn handle_event(state: &mut PluginState, mpv: &mut Handle, reply: u64) -> Re
     match reply {
         ON_LOAD_REPLY => on_load(state, mpv),
         ON_PRELOADED_REPLY => on_preloaded(state, mpv),
-        OBSERVE_VID_REPLY => observe_vid_reply(state, mpv),
+        OBSERVE_AID_REPLY => observe_aid_reply(state, mpv),
         OBSERVE_YTDL_FORMAT_REPLY => observe_ytdl_format_reply(state, mpv),
         _ => Ok(()),
     }
@@ -160,7 +160,8 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle) -> Result<()> 
 }
 
 fn on_preloaded(state: &PluginState, mpv: &mut Handle) -> Result<()> {
-    const VIDEO_TRACK_PLACEHOLDER: &str = "av://lavfi:color=c=black@0.0:s=1280x720:r=1";
+    const AUDIO_TRACK_PLACEHOLDER: &str =
+        "ffmpeg://data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAIlYAAIhYAQACABAAZGF0YQQAAAAAAAAD";
 
     let mut script_opts = mpv.get_script_opts()?;
 
@@ -208,18 +209,18 @@ fn on_preloaded(state: &PluginState, mpv: &mut Handle) -> Result<()> {
             continue;
         }
 
-        mpv.video_add(VIDEO_TRACK_PLACEHOLDER, "auto", title)?;
+        mpv.audio_add(AUDIO_TRACK_PLACEHOLDER, "auto", title)?;
     }
 
     Ok(())
 }
 
-fn observe_vid_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
+fn observe_aid_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
     let Some(_) = mpv.get_script_opts()?.get(KODIK_PAYLOAD_KEY) else {
         return Ok(());
     };
 
-    let Ok(current_translation_title) = mpv.get_current_tracks_video_title() else {
+    let Ok(current_translation_title) = mpv.get_current_tracks_audio_title() else {
         return Ok(());
     };
 

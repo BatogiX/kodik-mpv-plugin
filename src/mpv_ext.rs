@@ -40,13 +40,13 @@ pub trait MpvExt {
     fn set_playlist_pos(&mut self, pos: &str) -> Result<()>;
     fn playlist_play_index(&mut self, index: &str) -> Result<()>;
     fn get_ytdl_format(&mut self) -> Result<String>;
-    fn video_add(&mut self, url: &str, flag: &str, title: &str) -> Result<()>;
+    fn audio_add(&mut self, url: &str, flag: &str, title: &str) -> Result<()>;
     fn hook_add_ext(&mut self, reply: u64, name: &str, priority: i32) -> Result<()>;
     fn observe_property_ext<T: Format>(&mut self, reply: u64, name: impl AsRef<str>) -> Result<()>;
     fn set_file_local_options_start<S: ToString>(&mut self, time_pos: S) -> Result<()>;
     fn get_time_pos(&mut self) -> Result<f64>;
     fn reload_current_file(&mut self) -> Result<()>;
-    fn get_current_tracks_video_title(&mut self) -> Result<String>;
+    fn get_current_tracks_audio_title(&mut self) -> Result<String>;
     fn get_playlist_filename_by_index(&mut self, index: i64) -> Result<String>;
     fn get_playlist_count(&mut self) -> Result<i64>;
 }
@@ -122,9 +122,9 @@ impl MpvExt for Handle {
             .mpv_context("failed to `get-property ytdl-format`")
     }
 
-    fn video_add(&mut self, url: &str, flag: &str, title: &str) -> Result<()> {
-        self.command(["video-add", url, flag, title, "ru"])
-            .with_mpv_context(|| format!("failed to `video-add {url} {flag} {title} ru`"))
+    fn audio_add(&mut self, url: &str, flag: &str, title: &str) -> Result<()> {
+        self.command(["audio-add", url, flag, title, "ru"])
+            .with_mpv_context(|| format!("failed to `audio-add {url} {flag} {title} ru`"))
     }
 
     fn hook_add_ext(&mut self, reply: u64, name: &str, priority: i32) -> Result<()> {
@@ -153,9 +153,9 @@ impl MpvExt for Handle {
             .mpv_context("failed to `playlist-play-index current yes`")
     }
 
-    fn get_current_tracks_video_title(&mut self) -> Result<String> {
-        self.get_property::<String>("current-tracks/video/title")
-            .mpv_context("failed to `get-property current-tracks/video/title`")
+    fn get_current_tracks_audio_title(&mut self) -> Result<String> {
+        self.get_property::<String>("current-tracks/audio/title")
+            .mpv_context("failed to `get-property current-tracks/audio/title`")
     }
 
     fn get_playlist_filename_by_index(&mut self, index: i64) -> Result<String> {
