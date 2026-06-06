@@ -168,9 +168,9 @@ release:
     tag_name: "$CI_COMMIT_TAG"
     assets:
       links:
-        - name: "Linux Shared Library (.so)"
+        - name: "Linux x86"
           url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kodik-mpv-plugin/${CI_COMMIT_TAG}/kodik-linux.so"
-        - name: "Windows Dynamic Library (.dll)"
+        - name: "Windows x86"
           url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kodik-mpv-plugin/${CI_COMMIT_TAG}/kodik-windows.dll"
-        - name: "Android Shared Library (.so)"
+        - name: "Android aarch64"
           url: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/kodik-mpv-plugin/${CI_COMMIT_TAG}/kodik-android.so"

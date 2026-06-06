@@ -76,7 +76,7 @@ async fn fetch_animes(client: &Client, config: &Config, url: &str, host: &str) -
     )
 }
 
-pub fn expand(state: &mut PluginState, mpv: &mut Handle, url: &str, host: &str) -> Result<()> {
+pub fn expand(state: &mut PluginState, mp: &Handle, url: &str, host: &str) -> Result<()> {
     let has_kawai_session = state
         .jar()
         .cookies(&Url::from_str(&format!("https://{host}"))?)
@@ -107,7 +107,7 @@ pub fn expand(state: &mut PluginState, mpv: &mut Handle, url: &str, host: &str) 
             .block_on(fetch_animes(state.client(), state.config(), url, host))?
     };
 
-    let current_index: i64 = mpv.get_playlist_pos()?;
+    let current_index: i64 = mp.get_playlist_pos()?;
     let mut insert_index = current_index + 1;
     let mut seek_index: Option<i64> = None;
 
@@ -154,16 +154,16 @@ pub fn expand(state: &mut PluginState, mpv: &mut Handle, url: &str, host: &str) 
             }
 
             let payload = Payload::new(key.clone(), episode);
-            mpv.loadfile_insert_at(&media_title, &insert_index.to_string(), &payload.encode()?)?;
+            mp.loadfile_insert_at(&media_title, &insert_index.to_string(), &payload.encode()?)?;
 
             insert_index += 1;
         }
     }
 
-    mpv.playlist_remove(current_index)?;
+    mp.playlist_remove(current_index)?;
 
     if let Some(seek_index) = seek_index {
-        mpv.set_playlist_pos(&seek_index.to_string())?;
+        mp.set_playlist_pos(&seek_index.to_string())?;
     }
 
     Ok(())

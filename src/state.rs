@@ -3,10 +3,10 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{Context as _, Result};
 use kodik_parser::KodikApiResponse;
 use mpv_client::Handle;
-use reqwest::{Client, cookie::Jar};
+use reqwest::{Certificate, Client, cookie::Jar};
 use tokio::runtime::{Builder, Runtime};
 
-use crate::{config::Config, events::MetaData};
+use crate::{config::Config, events::MetaData, mpv_ext::MpvExt};
 
 pub struct PluginState {
     client: Client,
@@ -18,16 +18,21 @@ pub struct PluginState {
 }
 
 impl PluginState {
-    pub fn new(mpv: &mut Handle) -> Result<Self> {
-        let config = Config::load(mpv)?;
-        let jar = Arc::new(config.load_cookies()?);
+    pub fn new(mp: &Handle) -> Result<Self> {
+        let mut config: Config = mp.read_options();
 
-        let mut certs = Vec::new();
-        for cert_der in webpki_root_certs::TLS_SERVER_ROOT_CERTS {
-            if let Ok(cert) = reqwest::Certificate::from_der(cert_der.as_ref()) {
-                certs.push(cert);
+        if let Some(cookies) = config.cookies() {
+            let cookies_str = cookies.to_string_lossy();
+            if cookies_str.starts_with('~') {
+                config.set_cookies(Some(mp.expand_path(&cookies_str)?));
             }
         }
+
+        let jar = Arc::new(config.load_cookies()?);
+
+        let certs = webpki_root_certs::TLS_SERVER_ROOT_CERTS
+            .iter()
+            .filter_map(|cert_der| Certificate::from_der(cert_der.as_ref()).ok());
 
         let client = Client::builder()
             .tls_certs_only(certs)

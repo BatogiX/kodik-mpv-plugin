@@ -64,32 +64,32 @@ impl Payload {
     }
 }
 
-pub fn register(mpv: &mut Handle) -> Result<()> {
-    mpv.hook_add_ext(ON_LOAD_REPLY, "on_load", ON_LOAD_PRIORITY)?;
-    mpv.hook_add_ext(ON_PRELOADED_REPLY, "on_preloaded", ON_PRELOADED_PRIORITY)?;
-    mpv.observe_property_ext::<i64>(OBSERVE_AID_REPLY, "current-tracks/audio/id")?;
-    mpv.observe_property_ext::<String>(OBSERVE_YTDL_FORMAT_REPLY, "ytdl-format")?;
+pub fn register(mp: &Handle) -> Result<()> {
+    mp.hook_add_ext(ON_LOAD_REPLY, "on_load", ON_LOAD_PRIORITY)?;
+    mp.hook_add_ext(ON_PRELOADED_REPLY, "on_preloaded", ON_PRELOADED_PRIORITY)?;
+    mp.observe_property_ext::<i64>(OBSERVE_AID_REPLY, "current-tracks/audio/id")?;
+    mp.observe_property_ext::<String>(OBSERVE_YTDL_FORMAT_REPLY, "ytdl-format")?;
 
     Ok(())
 }
 
-pub fn handle_event(state: &mut PluginState, mpv: &mut Handle, reply: u64) -> Result<()> {
+pub fn handle_event(state: &mut PluginState, mp: &Handle, reply: u64) -> Result<()> {
     match reply {
-        ON_LOAD_REPLY => on_load(state, mpv),
-        ON_PRELOADED_REPLY => on_preloaded(state, mpv),
-        OBSERVE_AID_REPLY => observe_aid_reply(state, mpv),
-        OBSERVE_YTDL_FORMAT_REPLY => observe_ytdl_format_reply(state, mpv),
+        ON_LOAD_REPLY => on_load(state, mp),
+        ON_PRELOADED_REPLY => on_preloaded(state, mp),
+        OBSERVE_AID_REPLY => observe_aid_reply(state, mp),
+        OBSERVE_YTDL_FORMAT_REPLY => observe_ytdl_format_reply(state, mp),
         _ => Ok(()),
     }
 }
 
-fn on_load(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
-    let filename = mpv.get_stream_open_filename()?;
+fn on_load(state: &mut PluginState, mp: &Handle) -> Result<()> {
+    let filename = mp.get_stream_open_filename()?;
 
     let url = match Url::parse(&filename) {
         Ok(url) if matches!(url.scheme(), "http" | "https") => url,
         _ => {
-            let mut script_opts = mpv.get_script_opts()?;
+            let mut script_opts = mp.get_script_opts()?;
 
             let Some(node) = script_opts.remove(KODIK_PAYLOAD_KEY) else {
                 return Ok(());
@@ -102,7 +102,7 @@ fn on_load(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
             let payload = Payload::decode(&payload_encoded)?;
 
             match payload.metadata_key.split_once('.').context("expected host")?.0 {
-                SHIKI_HOST_NAME => shiki::on_load(state, mpv, &payload),
+                SHIKI_HOST_NAME => shiki::on_load(state, mp, &payload),
                 MAL_HOST_NAME => todo!(),
                 "imdb" => todo!(),
                 "kinopoisk" => todo!(),
@@ -123,8 +123,8 @@ fn on_load(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
     };
 
     match host_name {
-        KODIK_HOST_NAME => kodik::on_load(state, mpv, &filename),
-        SHIKI_HOST_NAME => shiki::expand(state, mpv, url.as_str(), host),
+        KODIK_HOST_NAME => kodik::on_load(state, mp, &filename),
+        SHIKI_HOST_NAME => shiki::expand(state, mp, url.as_str(), host),
         MAL_HOST_NAME => todo!(),
         "kinopoisk" => todo!(),
         "imdb" => todo!(),
@@ -134,8 +134,8 @@ fn on_load(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
     Ok(())
 }
 
-pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
-    let mut script_opts = mpv.get_script_opts()?;
+pub fn mark_as_watched(state: &mut PluginState, mp: &Handle) -> Result<()> {
+    let mut script_opts = mp.get_script_opts()?;
 
     let Some(node) = script_opts.remove(KODIK_PAYLOAD_KEY) else {
         anyhow::bail!("missing `{KODIK_PAYLOAD_KEY}` in `script-opts`")
@@ -148,7 +148,7 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle) -> Result<()> 
     let payload = Payload::decode(&payload_encoded)?;
 
     match payload.metadata_key.split_once('.').context("expected host")?.0 {
-        SHIKI_HOST_NAME => shiki::mark_as_watched(state, mpv, &payload),
+        SHIKI_HOST_NAME => shiki::mark_as_watched(state, mp, &payload),
         MAL_HOST_NAME => todo!(),
         "imdb" => todo!(),
         "kinopoisk" => todo!(),
@@ -159,11 +159,11 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle) -> Result<()> 
     Ok(())
 }
 
-fn on_preloaded(state: &PluginState, mpv: &mut Handle) -> Result<()> {
+fn on_preloaded(state: &PluginState, mp: &Handle) -> Result<()> {
     const AUDIO_TRACK_PLACEHOLDER: &str =
         "ffmpeg://data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAIlYAAIhYAQACABAAZGF0YQQAAAAAAAAD";
 
-    let mut script_opts = mpv.get_script_opts()?;
+    let mut script_opts = mp.get_script_opts()?;
 
     let Some(node) = script_opts.remove(KODIK_PAYLOAD_KEY) else {
         return Ok(());
@@ -209,18 +209,18 @@ fn on_preloaded(state: &PluginState, mpv: &mut Handle) -> Result<()> {
             continue;
         }
 
-        mpv.audio_add(AUDIO_TRACK_PLACEHOLDER, "auto", title)?;
+        mp.audio_add(AUDIO_TRACK_PLACEHOLDER, "auto", title)?;
     }
 
     Ok(())
 }
 
-fn observe_aid_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
-    let Some(_) = mpv.get_script_opts()?.get(KODIK_PAYLOAD_KEY) else {
+fn observe_aid_reply(state: &mut PluginState, mp: &Handle) -> Result<()> {
+    let Some(_) = mp.get_script_opts()?.get(KODIK_PAYLOAD_KEY) else {
         return Ok(());
     };
 
-    let Ok(current_translation_title) = mpv.get_current_tracks_audio_title() else {
+    let Ok(current_translation_title) = mp.get_current_tracks_audio_title() else {
         return Ok(());
     };
 
@@ -228,18 +228,18 @@ fn observe_aid_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
         .config_mut()
         .set_translation_title(Some(regex::escape(&current_translation_title)));
 
-    let time_pos = mpv.get_time_pos()?;
-    mpv.set_file_local_options_start(time_pos)?;
-    mpv.reload_current_file()?;
+    let time_pos = mp.get_time_pos()?;
+    mp.set_file_local_options_start(time_pos)?;
+    mp.reload_current_file()?;
 
     Ok(())
 }
 
-fn observe_ytdl_format_reply(state: &mut PluginState, mpv: &mut Handle) -> Result<()> {
+fn observe_ytdl_format_reply(state: &mut PluginState, mp: &Handle) -> Result<()> {
     const EXTRACT_HEIGHT_PATTERN: &Lazy<Regex> = lazy_regex::regex!(r"height<=\??(\d+)");
 
     let quality = EXTRACT_HEIGHT_PATTERN
-        .captures(&mpv.get_ytdl_format()?)
+        .captures(&mp.get_ytdl_format()?)
         .and_then(|caps| caps.get(1))
         .and_then(|m| m.as_str().parse::<i32>().ok())
         .map_or_else(

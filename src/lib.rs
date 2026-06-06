@@ -1,13 +1,9 @@
-use std::ffi::c_int;
-
-use log::LevelFilter;
 use mpv_client::{Event, Handle, mpv_handle};
 
 mod cache;
 mod config;
 mod events;
 mod kodik;
-mod logger;
 mod mpv_ext;
 mod shiki;
 mod state;
@@ -15,13 +11,9 @@ mod state;
 use crate::cache::Cache;
 use crate::state::PluginState;
 
-#[allow(unsafe_code)]
-#[unsafe(no_mangle)]
-extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
-    let mpv = Handle::from_ptr(handle);
-    log::set_max_level(LevelFilter::Error);
-
-    let mut state = match PluginState::new(mpv) {
+#[mpv_client::main]
+fn main(mp: &mut Handle) -> i32 {
+    let mut state = match PluginState::new(mp) {
         Ok(state) => state,
         Err(err) => {
             log::error!("failed to initialize plugin state: {err:?}");
@@ -29,9 +21,7 @@ extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
         }
     };
 
-    logger::init_logger(mpv.name(), state.config().log_level());
-
-    let mut cache = match Cache::load(mpv) {
+    let mut cache = match Cache::load(mp) {
         Ok(cache) => cache,
         Err(err) => {
             log::error!("failed to load cache: {err:?}");
@@ -39,32 +29,32 @@ extern "C" fn mpv_open_cplugin(handle: *mut mpv_handle) -> c_int {
         }
     };
 
-    if let Err(err) = events::register(mpv) {
+    if let Err(err) = events::register(mp) {
         log::error!("failed to register hooks: {err:?}");
         return 1;
     }
 
     loop {
-        match mpv.wait_event(-1.) {
+        match mp.wait_event(-1.) {
             Event::Shutdown => break,
             Event::Hook(reply, hook) => {
-                if let Err(err) = events::handle_event(&mut state, mpv, reply) {
+                if let Err(err) = events::handle_event(&mut state, mp, reply) {
                     log::error!("hook `{}` failed: {err:?}", hook.name());
                 }
 
-                if let Err(err) = mpv.hook_continue(hook.id()) {
+                if let Err(err) = mp.hook_continue(hook.id()) {
                     log::error!("failed to continue hook `{}`: {:?}", hook.name(), err);
                 }
             }
             Event::ClientMessage(data) => {
-                if let ["key-binding", "watched", "d--" | "dm-", ..] = data.args().as_slice()
-                    && let Err(err) = events::mark_as_watched(&mut state, mpv)
+                if let ["key-binding", "watched", "d--" | "p--" | "dm-", ..] = data.args().as_slice()
+                    && let Err(err) = events::mark_as_watched(&mut state, mp)
                 {
                     log::error!("failed to mark as watched: {err:?}");
                 }
             }
             Event::PropertyChange(reply, property) => {
-                if let Err(err) = events::handle_event(&mut state, mpv, reply) {
+                if let Err(err) = events::handle_event(&mut state, mp, reply) {
                     log::error!("observe `{}` failed: {err:?}", property.name());
                 }
             }

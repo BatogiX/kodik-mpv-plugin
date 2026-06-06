@@ -5,7 +5,7 @@ use mpv_client::Handle;
 use crate::kodik;
 use crate::{mpv_ext::MpvExt, state::PluginState};
 
-pub fn on_load(state: &mut PluginState, mpv: &mut Handle, payload: &crate::events::Payload) -> Result<()> {
+pub fn on_load(state: &mut PluginState, mp: &Handle, payload: &crate::events::Payload) -> Result<()> {
     let shiki_metadata = {
         let metadata = state.metadata();
         let crate::events::MetaData::Shiki(shiki_metadata) = metadata
@@ -53,12 +53,12 @@ pub fn on_load(state: &mut PluginState, mpv: &mut Handle, payload: &crate::event
     };
 
     let Some(indirect_link) = indirect_link else {
-        mpv.playlist_next_weak()?;
+        mp.playlist_next_weak()?;
         anyhow::bail!("episode not found");
     };
 
     let direct_link = kodik::resolve_indirect_link(state, format!("https:{indirect_link}").as_str())?;
-    mpv.set_stream_open_filename(direct_link)?;
+    mp.set_stream_open_filename(direct_link)?;
 
     Ok(())
 }

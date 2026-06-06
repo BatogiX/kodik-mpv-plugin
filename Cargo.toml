@@ -1,6 +1,6 @@
 [package]
 name = "kodik-mpv-plugin"
-version = "0.1.1"
+version = "0.1.2"
 description = "mpv plugin to get direct links to Kodik"
 readme = "README.md"
 edition.workspace = true

@@ -5,9 +5,9 @@ use mpv_client::Handle;
 
 use crate::{config::Quality, mpv_ext::MpvExt, state::PluginState};
 
-pub fn on_load(state: &PluginState, mpv: &mut Handle, indirect_link: &str) -> Result<()> {
+pub fn on_load(state: &PluginState, mp: &Handle, indirect_link: &str) -> Result<()> {
     let direct_link = resolve_indirect_link(state, indirect_link)?;
-    mpv.set_stream_open_filename(direct_link)?;
+    mp.set_stream_open_filename(direct_link)?;
     Ok(())
 }
 

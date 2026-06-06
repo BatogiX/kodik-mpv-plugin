@@ -13,7 +13,7 @@ use reqwest::{Url, cookie::CookieStore};
 
 use crate::state::PluginState;
 
-pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: &Payload) -> Result<()> {
+pub fn mark_as_watched(state: &mut PluginState, mp: &Handle, payload: &Payload) -> Result<()> {
     let (metadata_key, episode) = (payload.metadata_key(), payload.episode());
 
     let user_id = {
@@ -46,8 +46,8 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: &Payl
         anyhow::bail!("there is no `user_id` in payload")
     };
 
-    let current_pos = mpv.get_playlist_pos()?;
-    let last_pos = mpv.get_playlist_count()? - 1;
+    let current_pos = mp.get_playlist_pos()?;
+    let last_pos = mp.get_playlist_count()? - 1;
     let next_pos = current_pos + 1;
 
     let user_rate = state
@@ -62,12 +62,12 @@ pub fn mark_as_watched(state: &mut PluginState, mpv: &mut Handle, payload: &Payl
     };
 
     shiki_metadata.user_rate = Some(user_rate);
-    update_playlist_watched_titles(mpv, shiki_metadata, current_pos, metadata_key)?;
+    update_playlist_watched_titles(mp, shiki_metadata, current_pos, metadata_key)?;
     let osd_text = mark_as_watched_osd_text(&user_rate, shiki_metadata);
-    let _ = mpv_client::osd!(mpv, Duration::from_secs(8), "{osd_text}");
+    let _ = mpv_client::osd!(mp, Duration::from_secs(8), "{osd_text}");
 
     if current_pos != last_pos {
-        mpv.playlist_play_index(&next_pos.to_string())?;
+        mp.playlist_play_index(&next_pos.to_string())?;
     }
 
     Ok(())
@@ -158,7 +158,7 @@ fn mark_as_watched_osd_text(user_rate: &UserRate, anime: &ShikiMetaData) -> Stri
 }
 
 fn update_playlist_watched_titles(
-    mpv: &mut Handle,
+    mp: &Handle,
     shiki_metadata: &ShikiMetaData,
     current_pos: i64,
     metadata_key: &str,
@@ -177,8 +177,8 @@ fn update_playlist_watched_titles(
         shiki_metadata.episodes
     };
 
-    let mut update_title = |index: i64, episode, status_marker| -> Result<()> {
-        let media_title = mpv.get_playlist_filename_by_index(index)?;
+    let update_title = |index: i64, episode, status_marker| -> Result<()> {
+        let media_title = mp.get_playlist_filename_by_index(index)?;
 
         if media_title.ends_with(status_marker) {
             return Ok(());
@@ -199,8 +199,8 @@ fn update_playlist_watched_titles(
         };
 
         let payload = Payload::new(metadata_key.to_owned(), episode);
-        mpv.loadfile_insert_at(&media_title, &index.to_string(), &payload.encode()?)?;
-        mpv.playlist_remove(index + 1)?;
+        mp.loadfile_insert_at(&media_title, &index.to_string(), &payload.encode()?)?;
+        mp.playlist_remove(index + 1)?;
 
         Ok(())
     };

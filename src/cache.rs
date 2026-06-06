@@ -21,8 +21,8 @@ pub struct Cache {
 }
 
 impl Cache {
-    pub fn load(mpv: &mut Handle) -> Result<Self> {
-        let path = mpv.expand_path(CACHE_PATH)?;
+    pub fn load(mp: &Handle) -> Result<Self> {
+        let path = mp.expand_path(CACHE_PATH)?;
 
         if !path.exists() {
             if let Some(parent) = path.parent() {
