@@ -67,7 +67,7 @@ pub fn mark_as_watched(state: &mut PluginState, mp: &Handle, payload: &Payload) 
     let _ = mpv_client::osd!(mp, Duration::from_secs(8), "{osd_text}");
 
     if current_pos != last_pos {
-        mp.playlist_play_index(&next_pos.to_string())?;
+        mp.playlist_play_index(next_pos.to_string())?;
     }
 
     Ok(())

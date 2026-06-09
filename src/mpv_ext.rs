@@ -34,15 +34,15 @@ pub trait MpvExt {
     fn get_stream_open_filename(&self) -> Result<String>;
     fn set_stream_open_filename<S: Into<String>>(&self, filename: S) -> Result<()>;
     fn playlist_next_weak(&self) -> Result<()>;
-    fn expand_path(&self, path: &str) -> Result<PathBuf>;
+    fn expand_path<'a, S: Into<Cow<'a, str>>>(&self, path: S) -> Result<PathBuf>;
     fn playlist_remove(&self, index: i64) -> Result<()>;
-    fn loadfile_insert_at(&self, url: &str, index: &str, options: &str) -> Result<()>;
+    fn loadfile_insert_at<'a, S: Into<Cow<'a, str>>>(&self, url: S, index: S, options: S) -> Result<()>;
     fn get_playlist_pos(&self) -> Result<i64>;
-    fn set_playlist_pos(&self, pos: &str) -> Result<()>;
-    fn playlist_play_index(&self, index: &str) -> Result<()>;
+    fn set_playlist_pos<'a, S: Into<Cow<'a, str>>>(&self, pos: S) -> Result<()>;
+    fn playlist_play_index<'a, S: Into<Cow<'a, str>>>(&self, index: S) -> Result<()>;
     fn get_ytdl_format(&self) -> Result<String>;
-    fn audio_add(&self, url: &str, flag: &str, title: &str) -> Result<()>;
-    fn hook_add_ext(&self, reply: u64, name: &str, priority: i32) -> Result<()>;
+    fn audio_add<'a, S: Into<Cow<'a, str>>>(&self, url: S, flag: S, title: S) -> Result<()>;
+    fn hook_add_ext<'a, S: Into<Cow<'a, str>>>(&self, reply: u64, name: S, priority: i32) -> Result<()>;
     fn observe_property_ext<'a, S: Into<Cow<'a, str>>, T: Format>(&self, reply: u64, name: S) -> Result<()>;
     fn set_file_local_options_start<S: ToString>(&self, time_pos: S) -> Result<()>;
     fn get_time_pos(&self) -> Result<f64>;
@@ -81,9 +81,10 @@ impl MpvExt for Handle {
             .mpv_context("failed to `playlist-next weak`")
     }
 
-    fn expand_path(&self, path: &str) -> Result<PathBuf> {
+    fn expand_path<'a, S: Into<Cow<'a, str>>>(&self, path: S) -> Result<PathBuf> {
+        let path = path.into();
         let node = self
-            .command_ret(["expand-path", path])
+            .command_ret(["expand-path", path.as_ref()])
             .with_mpv_context(|| format!("failed to `expand-path {path}`"))?;
 
         let Node::String(expanded_path) = node else {
@@ -98,8 +99,9 @@ impl MpvExt for Handle {
             .with_mpv_context(|| format!("failed to `playlist-remove {index}`"))
     }
 
-    fn loadfile_insert_at(&self, url: &str, index: &str, options: &str) -> Result<()> {
-        self.command(["loadfile", url, "insert-at", index, options])
+    fn loadfile_insert_at<'a, S: Into<Cow<'a, str>>>(&self, url: S, index: S, options: S) -> Result<()> {
+        let (url, index, options) = (url.into(), index.into(), options.into());
+        self.command(["loadfile", url.as_ref(), "insert-at", index.as_ref(), options.as_ref()])
             .with_mpv_context(|| format!("failed to `loadfile {url} insert-at {index} {options}`"))
     }
 
@@ -108,13 +110,15 @@ impl MpvExt for Handle {
             .mpv_context("failed to `get-property playlist-pos`")
     }
 
-    fn set_playlist_pos(&self, pos: &str) -> Result<()> {
-        self.command(["set", "playlist-pos", pos])
+    fn set_playlist_pos<'a, S: Into<Cow<'a, str>>>(&self, pos: S) -> Result<()> {
+        let pos = pos.into();
+        self.set_property("playlist-pos", pos.to_string())
             .with_mpv_context(|| format!("failed to `set playlist-pos {pos}`"))
     }
 
-    fn playlist_play_index(&self, index: &str) -> Result<()> {
-        self.command(["playlist-play-index", index])
+    fn playlist_play_index<'a, S: Into<Cow<'a, str>>>(&self, index: S) -> Result<()> {
+        let index = index.into();
+        self.command(["playlist-play-index", index.as_ref()])
             .with_mpv_context(|| format!("failed to `playlist-play-index {index}`"))
     }
 
@@ -123,13 +127,15 @@ impl MpvExt for Handle {
             .mpv_context("failed to `get-property ytdl-format`")
     }
 
-    fn audio_add(&self, url: &str, flag: &str, title: &str) -> Result<()> {
-        self.command(["audio-add", url, flag, title, "ru"])
+    fn audio_add<'a, S: Into<Cow<'a, str>>>(&self, url: S, flag: S, title: S) -> Result<()> {
+        let (url, flag, title) = (url.into(), flag.into(), title.into());
+        self.command(["audio-add", url.as_ref(), flag.as_ref(), title.as_ref(), "ru"])
             .with_mpv_context(|| format!("failed to `audio-add {url} {flag} {title} ru`"))
     }
 
-    fn hook_add_ext(&self, reply: u64, name: &str, priority: i32) -> Result<()> {
-        self.hook_add(reply, name, priority)
+    fn hook_add_ext<'a, S: Into<Cow<'a, str>>>(&self, reply: u64, name: S, priority: i32) -> Result<()> {
+        let name = name.into();
+        self.hook_add(reply, name.as_ref(), priority)
             .with_mpv_context(|| format!("failed to `hook-add {reply} {name} {priority}`"))
     }
 

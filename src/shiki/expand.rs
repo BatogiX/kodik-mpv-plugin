@@ -163,7 +163,7 @@ pub fn expand(state: &mut PluginState, mp: &Handle, url: &str, host: &str) -> Re
     mp.playlist_remove(current_index)?;
 
     if let Some(seek_index) = seek_index {
-        mp.set_playlist_pos(&seek_index.to_string())?;
+        mp.set_playlist_pos(seek_index.to_string())?;
     }
 
     Ok(())

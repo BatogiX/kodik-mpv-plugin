@@ -24,7 +24,7 @@ impl PluginState {
         if let Some(cookies) = config.cookies() {
             let cookies_str = cookies.to_string_lossy();
             if cookies_str.starts_with('~') {
-                config.set_cookies(Some(mp.expand_path(&cookies_str)?));
+                config.set_cookies(Some(mp.expand_path(cookies_str)?));
             }
         }
 

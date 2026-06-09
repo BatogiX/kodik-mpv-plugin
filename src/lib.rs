@@ -13,9 +13,6 @@ use crate::state::PluginState;
 
 #[mpv_client::main]
 fn main(mp: &Handle, mut event_token: EventQueueToken) -> i32 {
-    log::error!("mp.get_time_ns(): {}", mp.get_time_ns());
-    log::error!("mp.get_time_us(): {}", mp.get_time_us());
-
     let mut state = match PluginState::new(mp) {
         Ok(state) => state,
         Err(err) => {
