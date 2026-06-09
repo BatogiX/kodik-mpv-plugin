@@ -68,7 +68,7 @@ impl Payload {
 }
 
 pub fn register(mp: &Handle) -> Result<()> {
-    mp.hook_addext(ON_LOAD_REPLY, "on_load", ON_LOAD_PRIORITY)?;
+    mp.hook_add_ext(ON_LOAD_REPLY, "on_load", ON_LOAD_PRIORITY)?;
     mp.hook_add_ext(ON_PRELOADED_REPLY, "on_preloaded", ON_PRELOADED_PRIORITY)?;
     mp.observe_property_ext::<&str, i64>(OBSERVE_AID_REPLY, "current-tracks/audio/id")?;
     mp.observe_property_ext::<&str, String>(OBSERVE_YTDL_FORMAT_REPLY, "ytdl-format")?;

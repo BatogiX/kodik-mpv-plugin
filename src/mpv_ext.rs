@@ -123,9 +123,9 @@ impl MpvExt for Handle {
             .mpv_context("failed to `get-property ytdl-format`")
     }
 
-    fn video_add(&self, url: &str, flag: &str, title: &str) -> Result<()> {
-        self.command(["video-add", url, flag, title, "ru"])
-            .with_mpv_context(|| format!("failed to `video-add {url} {flag} {title} ru`"))
+    fn audio_add(&self, url: &str, flag: &str, title: &str) -> Result<()> {
+        self.command(["audio-add", url, flag, title, "ru"])
+            .with_mpv_context(|| format!("failed to `audio-add {url} {flag} {title} ru`"))
     }
 
     fn hook_add_ext(&self, reply: u64, name: &str, priority: i32) -> Result<()> {
