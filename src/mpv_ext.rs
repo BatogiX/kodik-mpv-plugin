@@ -1,29 +1,30 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{borrow::Cow, collections::HashMap, path::PathBuf};
 
 use anyhow::{Result, anyhow};
 use mpv_client::{Format, Handle, Node};
 
 pub trait MpvResultExt<T> {
-    fn mpv_context(self, context: impl Into<String>) -> Result<T>;
-    fn with_mpv_context<F, C>(self, f: F) -> Result<T>
+    fn mpv_context<'a, S: Into<Cow<'a, str>>>(self, context: S) -> Result<T>;
+    fn with_mpv_context<'a, F, S>(self, f: F) -> Result<T>
     where
-        F: FnOnce() -> C,
-        C: Into<String>;
+        F: FnOnce() -> S,
+        S: Into<Cow<'a, str>>;
 }
 
 impl<T> MpvResultExt<T> for std::result::Result<T, mpv_client::Error> {
-    fn mpv_context(self, context: impl Into<String>) -> Result<T> {
-        self.map_err(|err| anyhow!("{}: {:?}", context.into(), err))
+    fn mpv_context<'a, S: Into<Cow<'a, str>>>(self, context: S) -> Result<T> {
+        let context = context.into();
+        self.map_err(|err| anyhow!("{context}: {err}"))
     }
 
-    fn with_mpv_context<F, C>(self, f: F) -> Result<T>
+    fn with_mpv_context<'a, F, S>(self, f: F) -> Result<T>
     where
-        F: FnOnce() -> C,
-        C: Into<String>,
+        F: FnOnce() -> S,
+        S: Into<Cow<'a, str>>,
     {
         self.map_err(|err| {
             let context = f().into();
-            anyhow!("{context}: {err:?}")
+            anyhow!("{context}: {err}")
         })
     }
 }
@@ -42,7 +43,7 @@ pub trait MpvExt {
     fn get_ytdl_format(&self) -> Result<String>;
     fn audio_add(&self, url: &str, flag: &str, title: &str) -> Result<()>;
     fn hook_add_ext(&self, reply: u64, name: &str, priority: i32) -> Result<()>;
-    fn observe_property_ext<T: Format>(&self, reply: u64, name: impl AsRef<str>) -> Result<()>;
+    fn observe_property_ext<'a, S: Into<Cow<'a, str>>, T: Format>(&self, reply: u64, name: S) -> Result<()>;
     fn set_file_local_options_start<S: ToString>(&self, time_pos: S) -> Result<()>;
     fn get_time_pos(&self) -> Result<f64>;
     fn reload_current_file(&self) -> Result<()>;
@@ -122,9 +123,9 @@ impl MpvExt for Handle {
             .mpv_context("failed to `get-property ytdl-format`")
     }
 
-    fn audio_add(&self, url: &str, flag: &str, title: &str) -> Result<()> {
-        self.command(["audio-add", url, flag, title, "ru"])
-            .with_mpv_context(|| format!("failed to `audio-add {url} {flag} {title} ru`"))
+    fn video_add(&self, url: &str, flag: &str, title: &str) -> Result<()> {
+        self.command(["video-add", url, flag, title, "ru"])
+            .with_mpv_context(|| format!("failed to `video-add {url} {flag} {title} ru`"))
     }
 
     fn hook_add_ext(&self, reply: u64, name: &str, priority: i32) -> Result<()> {
@@ -132,9 +133,10 @@ impl MpvExt for Handle {
             .with_mpv_context(|| format!("failed to `hook-add {reply} {name} {priority}`"))
     }
 
-    fn observe_property_ext<T: Format>(&self, reply: u64, name: impl AsRef<str>) -> Result<()> {
-        self.observe_property::<T>(reply, &name)
-            .with_mpv_context(|| format!("failed to `observe-property {}`", name.as_ref()))
+    fn observe_property_ext<'a, S: Into<Cow<'a, str>>, T: Format>(&self, reply: u64, name: S) -> Result<()> {
+        let name = name.into();
+        self.observe_property::<&str, T>(reply, name.as_ref())
+            .with_mpv_context(|| format!("failed to `observe-property {name}`"))
     }
 
     fn set_file_local_options_start<S: ToString>(&self, time_pos: S) -> Result<()> {
@@ -154,7 +156,7 @@ impl MpvExt for Handle {
     }
 
     fn get_current_tracks_audio_title(&self) -> Result<String> {
-        self.get_property::<String>("current-tracks/audio/title")
+        self.get_property::<&str, String>("current-tracks/audio/title")
             .mpv_context("failed to `get-property current-tracks/audio/title`")
     }
 
