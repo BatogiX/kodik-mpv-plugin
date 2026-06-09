@@ -44,14 +44,9 @@ impl Payload {
 
     pub fn encode(&self) -> Result<String> {
         let json = serde_json::to_string(self).context("failed to serialize kodik payload")?;
-
         let script_opt = format!("{KODIK_PAYLOAD_KEY}={json}");
         let quoted = format!("%{}%{}", script_opt.len(), script_opt);
-        let base_opts = format!("script-opts-append={quoted}");
-
-        Ok(format!(
-            "{base_opts},demuxer-lavf-format=hls,demuxer-lavf-o=http_seekable=0"
-        ))
+        Ok(format!("script-opts-append={quoted}"))
     }
 
     pub fn decode(raw_json: &str) -> Result<Self> {
