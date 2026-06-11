@@ -1,3 +1,4 @@
+use anyhow::Context;
 use mpv_client::{Event, EventQueueToken, Handle};
 
 mod cache;
@@ -12,33 +13,26 @@ use crate::cache::Cache;
 use crate::state::PluginState;
 
 #[mpv_client::main]
-fn main(mp: &Handle, mut event_token: EventQueueToken) -> i32 {
-    let mut state = match PluginState::new(mp) {
-        Ok(state) => state,
+fn main(mp: &Handle, event_token: EventQueueToken) -> i32 {
+    match run(mp, event_token) {
+        Ok(()) => 0,
         Err(err) => {
-            log::error!("failed to initialize plugin state: {err:?}");
-            return 1;
+            log::error!("{err}");
+            1
         }
-    };
-
-    let mut cache = match Cache::load(mp) {
-        Ok(cache) => cache,
-        Err(err) => {
-            log::error!("failed to load cache: {err:?}");
-            return 1;
-        }
-    };
-
-    if let Err(err) = events::register(mp) {
-        log::error!("failed to register hooks: {err:?}");
-        return 1;
     }
+}
+
+fn run(mp: &Handle, mut event_token: EventQueueToken) -> anyhow::Result<()> {
+    let mut state = PluginState::new(mp).context("failed to initialize plugin state")?;
+    let mut cache = Cache::load(mp).context("failed to load cache")?;
+    events::register(mp).context("failed to register hooks")?;
 
     loop {
         match mp.wait_event(&mut event_token, -1.) {
             Event::Shutdown => break,
             Event::Hook(reply, hook) => {
-                if let Err(err) = events::handle_event(&mut state, mp, reply) {
+                if let Err(err) = events::handle_hook(&mut state, mp, reply) {
                     log::error!("hook `{}` failed: {err:?}", hook.name());
                 }
 
@@ -54,18 +48,15 @@ fn main(mp: &Handle, mut event_token: EventQueueToken) -> i32 {
                 }
             }
             Event::PropertyChange(reply, property) => {
-                if let Err(err) = events::handle_event(&mut state, mp, reply) {
+                if let Err(err) = events::handle_property_change(&mut state, mp, reply, &property) {
                     log::error!("observe `{}` failed: {err:?}", property.name());
                 }
             }
-            _ => {}
+            event => println!("\n{event}\n"), // _ => {}
         }
     }
 
-    if let Err(err) = cache.update_and_save() {
-        log::error!("failed to update and save cache: {err}");
-        return 1;
-    }
+    cache.update_and_save().context("failed to update and save cache")?;
 
-    0
+    Ok(())
 }

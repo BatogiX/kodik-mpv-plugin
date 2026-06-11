@@ -1,6 +1,6 @@
 use anyhow::{Context as _, Result};
 use lazy_regex::{Lazy, Regex, regex};
-use mpv_client::{Handle, Node};
+use mpv_client::{Handle, Node, Property};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
@@ -71,12 +71,21 @@ pub fn register(mp: &Handle) -> Result<()> {
     Ok(())
 }
 
-pub fn handle_event(state: &mut PluginState, mp: &Handle, reply: u64) -> Result<()> {
+pub fn handle_hook(state: &mut PluginState, mp: &Handle, reply: u64) -> Result<()> {
     match reply {
         ON_LOAD_REPLY => on_load(state, mp),
         ON_PRELOADED_REPLY => on_preloaded(state, mp),
+        _ => Ok(()),
+    }
+}
+
+pub fn handle_property_change(state: &mut PluginState, mp: &Handle, reply: u64, property: &Property<'_>) -> Result<()> {
+    match reply {
         OBSERVE_AID_REPLY => observe_aid_reply(state, mp),
-        OBSERVE_YTDL_FORMAT_REPLY => observe_ytdl_format_reply(state, mp),
+        OBSERVE_YTDL_FORMAT_REPLY => {
+            observe_ytdl_format_reply(state, property);
+            Ok(())
+        }
         _ => Ok(()),
     }
 }
@@ -226,18 +235,28 @@ fn observe_aid_reply(state: &mut PluginState, mp: &Handle) -> Result<()> {
         .config_mut()
         .set_translation_title(Some(regex::escape(&current_translation_title)));
 
-    let time_pos = mp.get_time_pos()?;
+    let time_pos: String = mp.get_time_pos()?;
     mp.set_file_local_options_start(time_pos)?;
     mp.reload_current_file()?;
 
     Ok(())
 }
 
-fn observe_ytdl_format_reply(state: &mut PluginState, mp: &Handle) -> Result<()> {
+fn observe_ytdl_format_reply(state: &mut PluginState, property: &Property<'_>) {
     const EXTRACT_HEIGHT_PATTERN: &Lazy<Regex> = lazy_regex::regex!(r"height<=\??(\d+)");
 
+    let ytdl_format: String = if let Some(v) = property.data() {
+        v
+    } else {
+        return;
+    };
+
+    if ytdl_format.is_empty() {
+        return;
+    }
+
     let quality = EXTRACT_HEIGHT_PATTERN
-        .captures(&mp.get_ytdl_format()?)
+        .captures(&ytdl_format)
         .and_then(|caps| caps.get(1))
         .and_then(|m| m.as_str().parse::<i32>().ok())
         .map_or_else(
@@ -251,6 +270,4 @@ fn observe_ytdl_format_reply(state: &mut PluginState, mp: &Handle) -> Result<()>
         );
 
     state.config_mut().set_quality(quality);
-
-    Ok(())
 }

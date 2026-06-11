@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, path::PathBuf};
+use std::{borrow::Cow, collections::HashMap, fmt::Debug, path::PathBuf};
 
 use anyhow::{Result, anyhow};
 use mpv_client::{Format, Handle, Node};
@@ -40,12 +40,11 @@ pub trait MpvExt {
     fn get_playlist_pos(&self) -> Result<i64>;
     fn set_playlist_pos<'a, S: Into<Cow<'a, str>>>(&self, pos: S) -> Result<()>;
     fn playlist_play_index<'a, S: Into<Cow<'a, str>>>(&self, index: S) -> Result<()>;
-    fn get_ytdl_format(&self) -> Result<String>;
     fn audio_add<'a, S: Into<Cow<'a, str>>>(&self, url: S, flag: S, title: S) -> Result<()>;
     fn hook_add_ext<'a, S: Into<Cow<'a, str>>>(&self, reply: u64, name: S, priority: i32) -> Result<()>;
     fn observe_property_ext<'a, S: Into<Cow<'a, str>>, T: Format>(&self, reply: u64, name: S) -> Result<()>;
-    fn set_file_local_options_start<S: ToString>(&self, time_pos: S) -> Result<()>;
-    fn get_time_pos(&self) -> Result<f64>;
+    fn set_file_local_options_start<T: Format + Clone + Debug>(&self, time_pos: T) -> Result<()>;
+    fn get_time_pos<T: Format>(&self) -> Result<T>;
     fn reload_current_file(&self) -> Result<()>;
     fn get_current_tracks_audio_title(&self) -> Result<String>;
     fn get_playlist_filename_by_index(&self, index: i64) -> Result<String>;
@@ -122,11 +121,6 @@ impl MpvExt for Handle {
             .with_mpv_context(|| format!("failed to `playlist-play-index {index}`"))
     }
 
-    fn get_ytdl_format(&self) -> Result<String> {
-        self.get_property("ytdl-format")
-            .mpv_context("failed to `get-property ytdl-format`")
-    }
-
     fn audio_add<'a, S: Into<Cow<'a, str>>>(&self, url: S, flag: S, title: S) -> Result<()> {
         let (url, flag, title) = (url.into(), flag.into(), title.into());
         self.command(["audio-add", url.as_ref(), flag.as_ref(), title.as_ref(), "ru"])
@@ -141,17 +135,16 @@ impl MpvExt for Handle {
 
     fn observe_property_ext<'a, S: Into<Cow<'a, str>>, T: Format>(&self, reply: u64, name: S) -> Result<()> {
         let name = name.into();
-        self.observe_property::<&str, T>(reply, name.as_ref())
+        self.observe_property::<T>(reply, name.as_ref())
             .with_mpv_context(|| format!("failed to `observe-property {name}`"))
     }
 
-    fn set_file_local_options_start<S: ToString>(&self, time_pos: S) -> Result<()> {
-        let time_pos = time_pos.to_string();
+    fn set_file_local_options_start<T: Format + Clone + Debug>(&self, time_pos: T) -> Result<()> {
         self.set_property("file-local-options/start", time_pos.clone())
-            .with_mpv_context(|| format!("failed to `set-property file-local-options/start {time_pos}`"))
+            .with_mpv_context(|| format!("failed to `set-property file-local-options/start {time_pos:#?}`"))
     }
 
-    fn get_time_pos(&self) -> Result<f64> {
+    fn get_time_pos<T: Format>(&self) -> Result<T> {
         self.get_property("time-pos")
             .mpv_context("failed to `get-property time-pos`")
     }
@@ -162,7 +155,7 @@ impl MpvExt for Handle {
     }
 
     fn get_current_tracks_audio_title(&self) -> Result<String> {
-        self.get_property::<&str, String>("current-tracks/audio/title")
+        self.get_property::<String>("current-tracks/audio/title")
             .mpv_context("failed to `get-property current-tracks/audio/title`")
     }
 
